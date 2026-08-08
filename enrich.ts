@@ -125,10 +125,24 @@ export function parseDuration(iso: string): number | null {
 
 // One request covers 50 videos and costs a single quota unit whatever it asks for, so
 // credits and durations come back together at no extra cost.
-async function youtubeLookup(ids: string[], key: string) {
+// Where you are decides what will play. A track licensed only for Brazil is in the history
+// of someone who listened in Germany — YouTube Music served them an equivalent — but the
+// video ID itself will not play there, and a playlist built from it hides those entries.
+export const currentRegion = () =>
+  process.env.RECAP_REGION ?? new Intl.Locale(Intl.DateTimeFormat().resolvedOptions().locale).region ?? "US";
+
+export function playableIn(restriction: { allowed?: string[]; blocked?: string[] } | undefined, region: string) {
+  if (!restriction) return true;
+  if (restriction.allowed) return restriction.allowed.includes(region);
+  if (restriction.blocked) return !restriction.blocked.includes(region);
+  return true;
+}
+
+async function youtubeLookup(ids: string[], key: string, region: string) {
   const artists = new Map<string, string>();
   const durations = new Map<string, number>();
   const recordings = new Map<string, string>();
+  const playable = new Map<string, boolean>();
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50);
     const r = await fetch(
@@ -148,9 +162,10 @@ async function youtubeLookup(ids: string[], key: string) {
       }
       const seconds = parseDuration(item.contentDetails?.duration ?? "");
       if (seconds) durations.set(item.id, seconds);
+      playable.set(item.id, playableIn(item.contentDetails?.regionRestriction, region));
     }
   }
-  return { artists, durations, recordings };
+  return { artists, durations, recordings, playable };
 }
 
 // YouTube titles often carry the artist as well ("Celldweller feat. X - Shapeshifter"), so
@@ -208,6 +223,7 @@ function collectWork(
   store: Record<string, string | null>,
   lengths: Record<string, number>,
   recordings: Record<string, string>,
+  availability: Record<string, boolean>,
 ) {
   const todo = new Map<string, string>();
   // One request answers length and song together, so a video is worth asking about when
@@ -217,7 +233,8 @@ function collectWork(
   for (const f of readdirSync("out").filter((x) => x.endsWith(".json"))) {
     for (const t of JSON.parse(readFileSync(`out/${f}`, "utf8"))) {
       if (PLACEHOLDERS.has(t.artist) && !(t.videoId in store)) todo.set(t.videoId, t.title);
-      if (!(t.videoId in lengths) || !(t.videoId in recordings)) needLookup.add(t.videoId);
+      if (!(t.videoId in lengths) || !(t.videoId in recordings) || !(t.videoId in availability))
+        needLookup.add(t.videoId);
     }
   }
   return { todo, needLookup: [...needLookup] };
@@ -258,7 +275,13 @@ async function main() {
   const lengths = loadCache<number>("durations.json");
   const recordings = loadCache<string>("recordings.json");
 
-  const { todo, needLookup } = collectWork(store, lengths, recordings);
+  // Availability is answered for one region, so moving country invalidates the whole file
+  // rather than any single entry.
+  const region = currentRegion();
+  const cached = loadCache<unknown>("availability.json") as { region?: string; playable?: Record<string, boolean> };
+  const availability = cached.region === region && cached.playable ? cached.playable : {};
+
+  const { todo, needLookup } = collectWork(store, lengths, recordings, availability);
   const key = process.env.YOUTUBE_API_KEY;
   if (!todo.size && !needLookup.length) {
     console.log("Nothing to look up — every track already has an artist and a length.");
@@ -271,13 +294,16 @@ async function main() {
   let authoritative = new Map<string, string>();
   if (key) {
     console.log(`Asking YouTube about ${needLookup.length} videos (${Math.ceil(needLookup.length / 50)} requests)...`);
-    const got = await youtubeLookup(needLookup, key);
+    const got = await youtubeLookup(needLookup, key, region);
     authoritative = got.artists;
     for (const [id, seconds] of got.durations) lengths[id] = seconds;
     for (const [id, recording] of got.recordings) recordings[id] = recording;
+    for (const [id, ok] of got.playable) availability[id] = ok;
     writeFileSync("durations.json", JSON.stringify(lengths, null, 2) + "\n");
     writeFileSync("recordings.json", JSON.stringify(recordings, null, 2) + "\n");
-    console.log(`  ${got.durations.size} track lengths and ${got.recordings.size} recordings cached.\n`);
+    writeFileSync("availability.json", JSON.stringify({ region, playable: availability }, null, 2) + "\n");
+    console.log(`  ${got.durations.size} track lengths, ${got.recordings.size} recordings, ` +
+        `${[...got.playable.values()].filter((x) => !x).length} not playable in ${region}.\n`);
   } else {
     console.log("  YOUTUBE_API_KEY is not set — using catalogue search only, which needs review.\n");
   }
@@ -361,6 +387,12 @@ function selftest() {
   assert.ok(titlesMatch("Зачем", "Зачем"), "and so does a Cyrillic one");
   assert.notEqual(normalize("高橋洋子"), normalize("残酷な天使"), "two non-Latin artists are not the same artist");
   assert.ok(normalize("一輪の花"), "a non-Latin value does not normalize away to nothing");
+
+  assert.ok(playableIn(undefined, "DE"), "no restriction plays anywhere");
+  assert.ok(!playableIn({ allowed: ["BR"] }, "DE"), "licensed elsewhere will not play here");
+  assert.ok(playableIn({ allowed: ["BR", "DE"] }, "DE"), "licensed here will");
+  assert.ok(!playableIn({ blocked: ["DE"] }, "DE"), "blocked here will not");
+  assert.ok(playableIn({ blocked: ["BR"] }, "DE"), "blocked elsewhere still plays here");
 
   assert.deepEqual(queryVariants("Celldweller feat. X - Shapeshifter"), ["Celldweller feat. X - Shapeshifter", "Shapeshifter"], "falls back to the text after the dash");
   assert.deepEqual(queryVariants("Bodies"), ["Bodies"], "a plain title is searched once");

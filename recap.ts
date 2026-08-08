@@ -353,7 +353,15 @@ if (args.includes("--selftest")) {
   //
   // Written as HTML rather than a bare URL so it can simply be opened: a 600-character
   // link is not something anyone should have to copy out of a text file by hand.
-  const shown = result.tracks.slice(0, 50);
+  //
+  // Tracks licensed away from here are left out and their places filled from further down
+  // the ranking. Including them costs a slot each and YouTube silently hides them, so the
+  // playlist arrives shorter than asked for with no explanation of why.
+  const availability: Record<string, boolean> = existsSync("availability.json")
+    ? (JSON.parse(readFileSync("availability.json", "utf8")).playable ?? {})
+    : {};
+  const unplayable = result.tracks.filter((t) => availability[t.videoId] === false).length;
+  const shown = result.tracks.filter((t) => availability[t.videoId] !== false).slice(0, 50);
   const url = `https://www.youtube.com/watch_videos?video_ids=${shown.map((t) => t.videoId).join(",")}`;
   writeFileSync(
     `out/${result.label}${suffix}.playlist.html`,
@@ -365,6 +373,9 @@ if (args.includes("--selftest")) {
       `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
       result.tracks.length > 50
         ? `<p><em>Your recap has ${result.tracks.length} tracks, but this link carries at most 50 — the rest need the API export.</em></p>`
+        : ``,
+      unplayable
+        ? `<p><em>${unplayable} track${unplayable === 1 ? "" : "s"} in this recap ${unplayable === 1 ? "is" : "are"} not licensed for your region and would be hidden by YouTube, so ${unplayable === 1 ? "it is" : "they are"} left out and the places filled from further down the ranking.</em></p>`
         : ``,
       `<ol>${shown.map((t) => `<li>${t.title} — ${t.artist}</li>`).join("")}</ol>`,
       `</body>`,

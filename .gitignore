@@ -1,4 +1,5 @@
 # directories
+.fallow/
 node_modules/
 out/
 tmp/
@@ -10,6 +11,7 @@ tmp/
 Desktop.ini
 Thumbs.db
 artists.json
+availability.json
 durations.json
 recordings.json
 watch-history.json

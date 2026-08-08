@@ -77,6 +77,8 @@ Open `out/2025.playlist.html` and follow the link while signed in to YouTube. It
 
 No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
 
+Music is licensed country by country, and YouTube quietly hides whatever isn't licensed where you are — so a playlist can arrive missing a dozen songs with no explanation. Once you've run the artist lookup below, those tracks are left out of the link and their places filled from further down your ranking, so you get fifty that actually play. Set `RECAP_REGION` in `.env` to the country you watch from; guessing it from your system language gets it wrong if you run an English system elsewhere.
+
 ## Better artists, and listening time
 
 Optional, and worth it. With a free YouTube API key, every track gets the artist its label credited and the recap can tell you hours listened rather than only play counts.
