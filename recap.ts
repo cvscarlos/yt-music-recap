@@ -1,10 +1,23 @@
 #!/usr/bin/env node
 // Rebuild a YouTube Music Recap playlist from a Google Takeout watch-history.json.
 //
-//   node recap.ts <watch-history.json> <period> [limit]
+//   node recap.ts <history.json[,more.json]> <period> [limit] [--min-seconds=N]
 //   node recap.ts --selftest
 //
-// period: 2023 | summer-2023 | 2023-06-01..2023-08-31
+// period: 2025 | h1-2025 | q3-2025 | summer-2025 | 2025-06-01..2025-08-31
+//
+// This runs twice for a full result, which is easy to mistake for a mistake. The first run
+// ranks from the history alone and writes out/. enrich.ts then reads out/ and asks YouTube
+// about the tracks that charted, leaving four files behind:
+//
+//   artists.json       a name for tracks YouTube labelled "Release" or left blank
+//   durations.json     how long each track runs, which turns plays into listening time
+//   recordings.json    which song a video holds, so versions of it count as one
+//   availability.json  where each will play, so the playlist omits what would be hidden
+//
+// A second run applies all four. They are optional: without them the ranking is the same,
+// only thinner. Nothing here reads them at import time, so rank() stays a pure function of
+// its arguments and the self-test can drive it without touching the disk.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -304,7 +317,10 @@ const args = process.argv.slice(2);
 const minSeconds = Number(args.find((a) => a.startsWith("--min-seconds="))?.split("=")[1] ?? DEFAULT_MIN_SECONDS);
 const [file, period, limitArg] = args.filter((a) => !a.startsWith("--"));
 
-if (args.includes("--selftest")) {
+// Only act when run directly, so importing rank() neither writes files nor exits.
+if (import.meta.filename !== process.argv[1]) {
+  // imported for its exports
+} else if (args.includes("--selftest")) {
   selftest();
 } else if (!file || !period || Number.isNaN(minSeconds)) {
   console.error(`usage: node recap.ts <watch-history.json> <period> [limit] [--min-seconds=N]  (default ${DEFAULT_MIN_SECONDS}, 0 counts every event)`);
