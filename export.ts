@@ -8,7 +8,9 @@
 // which means OAuth — an API key authorises reading public data and nothing more.
 //
 // Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env, from an OAuth client of type
-// "Desktop app". The refresh token is kept in oauth.json so this is asked once, not daily.
+// "Desktop app". The refresh token it earns is written back to .env, so authorising happens
+// once rather than daily, and every secret this project holds lives in one file that is
+// already ignored by git and understood by anyone reading the repo to be off limits.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -16,9 +18,13 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 
-try {
-  process.loadEnvFile();
-} catch {}
+// .env is yours; oauth.env is this program's, holding only the token it earned.
+const TOKEN_FILE = "oauth.env";
+for (const file of [".env", TOKEN_FILE]) {
+  try {
+    process.loadEnvFile(file);
+  } catch {}
+}
 
 const SCOPE = "https://www.googleapis.com/auth/youtube";
 const base64url = (b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -67,12 +73,11 @@ async function tokenRequest(body: Record<string, string>) {
 
 // A refresh token, once granted, is reusable — so the browser dance happens once.
 async function accessToken(clientId: string, clientSecret: string): Promise<string> {
-  const saved = existsSync("oauth.json") ? JSON.parse(readFileSync("oauth.json", "utf8")) : {};
-  if (saved.refresh_token) {
+  if (process.env.GOOGLE_REFRESH_TOKEN) {
     try {
       const refreshed = await tokenRequest({
         grant_type: "refresh_token",
-        refresh_token: saved.refresh_token,
+        refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
         client_id: clientId,
         client_secret: clientSecret,
       });
@@ -113,7 +118,9 @@ async function accessToken(clientId: string, clientSecret: string): Promise<stri
     redirect_uri: redirect,
     code_verifier: verifier,
   });
-  writeFileSync("oauth.json", JSON.stringify({ refresh_token: granted.refresh_token }, null, 2) + "\n");
+  // Its own file, not the one you edit: nothing this program writes should be able to
+  // disturb a key you typed in by hand.
+  writeFileSync(TOKEN_FILE, `# Written by export.ts. Delete this to authorise again.\nGOOGLE_REFRESH_TOKEN=${granted.refresh_token}\n`);
   return granted.access_token;
 }
 

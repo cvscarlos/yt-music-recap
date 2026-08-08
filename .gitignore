@@ -13,6 +13,6 @@ Thumbs.db
 artists.json
 availability.json
 durations.json
-oauth.json
+oauth.env
 recordings.json
 watch-history.json
