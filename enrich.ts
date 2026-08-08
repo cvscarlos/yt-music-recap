@@ -57,6 +57,47 @@ export function titlesMatch(query: string, found: string): boolean {
 
 type Candidate = { artist: string; title: string } | null;
 
+// Tracks YouTube generates for a label carry their credits in the description:
+//
+//   Provided to YouTube by Universal Music Group
+//
+//   Vai Pagar Caro Por Me Conhecer · Gloria
+//   Gloria
+//
+// The artist is stated for this exact video, so no title guessing is involved and a band
+// cannot lose its song to a famous act with the same name. Everything else is a fallback.
+export function parseArtTrack(description: string): string | null {
+  const lines = description.split("\n").map((l) => l.trim());
+  const header = lines.findIndex((l) => l.startsWith("Provided to YouTube by"));
+  if (header === -1) return null;
+  const credits = lines.slice(header + 1).find((l) => l.includes(" · "));
+  if (!credits) return null;
+  const artists = credits.split(" · ").slice(1); // first field is the song title
+  return artists.length ? artists.join(", ") : null;
+}
+
+// One request covers 50 videos and costs a single quota unit, so the daily allowance is
+// nowhere near a constraint here.
+async function youtubeArtists(ids: string[], key: string): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50);
+    const r = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${batch.join(",")}&key=${key}`,
+    );
+    if (!r.ok) {
+      console.error(`  YouTube API returned ${r.status} — falling back to catalogue search.`);
+      return found;
+    }
+    // Private uploads and deleted videos are simply absent from the response.
+    for (const item of ((await r.json()) as any).items ?? []) {
+      const artist = parseArtTrack(item.snippet?.description ?? "");
+      if (artist) found.set(item.id, artist);
+    }
+  }
+  return found;
+}
+
 // YouTube titles often carry the artist as well ("Celldweller feat. X - Shapeshifter"), so
 // searching the whole string returns nothing. Fall back to the text after the last dash,
 // which is where the song title sits in that convention.
@@ -125,10 +166,27 @@ async function main() {
   }
   console.log(`Looking up ${todo.size} tracks with a placeholder artist...\n`);
 
+  // Ask YouTube first. It answers by video ID rather than by title, so its answers need no
+  // human confirmation — which is what lets this run unattended on someone else's history.
+  const key = process.env.YOUTUBE_API_KEY;
+  const authoritative = key ? await youtubeArtists([...todo.keys()], key) : new Map<string, string>();
+  if (!key) {
+    console.log("  YOUTUBE_API_KEY is not set — using catalogue search only, which needs review.\n");
+  }
+
   const rows: string[] = [];
+  let fromYouTube = 0;
   let agreed = 0;
   let youtubeOnly = 0;
   for (const [videoId, title] of todo) {
+    const stated = authoritative.get(videoId);
+    if (stated) {
+      store[videoId] = stated;
+      fromYouTube++;
+      console.log(`  ${`YOUTUBE  ${stated}`.padEnd(46)} ${title.slice(0, 50)}`);
+      rows.push(`| ${title.replace(/\|/g, "/")} | ${stated} | — | **from YouTube** | ${videoId} |`);
+      continue;
+    }
     const [dz, it] = await Promise.all([deezer(title).catch(() => null), itunes(title).catch(() => null)]);
     await sleep(350); // iTunes throttles around 20 requests a minute
 
@@ -156,11 +214,13 @@ async function main() {
     [
       `# Artist lookup review`,
       ``,
-      `Of ${todo.size} tracks: **${agreed} resolved** by agreement between both sources, **${youtubeOnly} exist only on YouTube**, **${todo.size - agreed - youtubeOnly} need a human**.`,
+      `Of ${todo.size} tracks: **${fromYouTube} stated by YouTube**, **${agreed} agreed by both catalogues**, **${youtubeOnly} exist only on YouTube**, **${todo.size - fromYouTube - agreed - youtubeOnly} still ambiguous**.`,
       ``,
-      `YouTube-only tracks are mashups, meme edits and personal uploads that no music catalogue carries. They are recorded as resolved so they are not looked up again — they keep the channel name Takeout gave them.`,
+      `Rows marked *from YouTube* come from the label's own credits for that video ID, so they need no checking.`,
       ``,
-      `For the rest, pick a side and add it to artists.json as \`"videoId": "Artist"\`, then re-run recap.ts. Hand edits are never overwritten.`,
+      `YouTube-only tracks are mashups, meme edits and personal uploads that no catalogue carries. They are recorded as resolved so they are not looked up again — they keep the channel name Takeout gave them.`,
+      ``,
+      `Ambiguous rows are left alone and keep their channel name; nothing downstream waits on them. To override one anyway, add it to artists.json as \`"videoId": "Artist"\` — hand edits are never overwritten.`,
       ``,
       `| Track | Deezer | iTunes | Verdict | Video |`,
       `| --- | --- | --- | --- | --- |`,
@@ -168,7 +228,10 @@ async function main() {
       ``,
     ].join("\n"),
   );
-  console.log(`\n${agreed} resolved, ${youtubeOnly} YouTube-only, ${todo.size - agreed - youtubeOnly} need review. See out/artists-review.md.`);
+  console.log(
+    `\n${fromYouTube} from YouTube, ${agreed} agreed by catalogues, ${youtubeOnly} YouTube-only, ` +
+      `${todo.size - fromYouTube - agreed - youtubeOnly} left ambiguous. See out/artists-review.md.`,
+  );
 }
 
 function selftest() {
@@ -194,6 +257,20 @@ function selftest() {
   assert.ok(!plausibleArtist(cell, "Shapeshifter", "Lorde"), "rejects a famous song that took over the shortened query");
   assert.ok(plausibleArtist(cell, "Shapeshifter", "Celldweller"), "accepts the artist actually named in the title");
   assert.ok(plausibleArtist("Bodies", "Bodies", "Drowning Pool"), "an unshortened query needs no corroboration");
+
+  // Real description text, as returned for these video IDs.
+  assert.equal(
+    parseArtTrack("Provided to YouTube by Universal Music Group\n\nVai Pagar Caro Por Me Conhecer · Gloria\n\nGloria\n\n℗ 2009 Universal Music Ltda"),
+    "Gloria",
+    "reads the artist the label stated for this video",
+  );
+  assert.equal(
+    parseArtTrack("Provided to YouTube by Lujo Network\n\nTrava na Pose (feat. Mc Rennan) · DJ Patrick Muniz · Dj Olliver · Mc Topre\n\nTrava na Pose"),
+    "DJ Patrick Muniz, Dj Olliver, Mc Topre",
+    "keeps every credited artist",
+  );
+  assert.equal(parseArtTrack("just a normal youtube description\nwith no credits"), null, "an ordinary upload has no credits to read");
+  assert.equal(parseArtTrack(""), null, "an empty description resolves to nothing");
   console.log("selftest ok");
 }
 
