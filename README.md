@@ -1,121 +1,112 @@
 # yt-music-recap
 
-Rebuild your YouTube Music Recap playlists for past years and seasons, from your own Google Takeout export.
+**Get back the YouTube Music Recap playlists you lost.**
 
-YouTube only shows you a Recap for the current year, and the playlists disappear. If you have your listening history, the ranking can be reconstructed for any period — 2023, the first half of 2025, last summer — long after YouTube stopped showing it.
+Every December, YouTube Music hands you a Recap. Then the year turns, and it's gone — the playlist, the rankings, the whole thing. There's no archive and no way to ask for last year's.
 
-Two scripts, no dependencies, no build step. Everything runs locally and nothing is uploaded anywhere.
+Your listening history still exists, though. This rebuilds any Recap from it: a year, a half, a season, or any range of dates you name. 2023. Summer 2022. The first half of 2025.
 
-## Requirements
+It runs on your machine, needs no account, and installs nothing.
 
-Node 22.18 or newer, which runs TypeScript directly. The repo pins Node 24 in `.nvmrc`.
+## What it looks like
 
-## 1. Export your history
+```
+# 2025 Recap — top 100
 
-Google Takeout is the only source for your own listening history — no music service can reconstruct a past you did not scrobble at the time.
+16792 YouTube Music listens across 6397 tracks, 2025-01-01 to 2025-12-31.
+Excludes 2554 skips — tracks abandoned within 60s.
 
-1. Open [Google Takeout](https://takeout.google.com), click **Deselect all**
-2. Select **YouTube and YouTube Music**
-3. Under **All YouTube data included**, keep only **history**
-4. Under **Multiple formats**, set history to **JSON** — the default is HTML, which this cannot read
-5. Export, wait for the email (hours to days), download and unzip
+These 100 tracks alone account for 117 hours of listening.
 
-The file you want is `Takeout/YouTube and YouTube Music/history/watch-history.json`.
+| # | Track                              | Artist      | Plays | Minutes |
+| 1 | Vois Sur Ton Chemin *(2 versions)* | deprezz     |    51 |     160 |
+| 2 | Só Eu Sei *(2 versions)*           | Gloria      |    46 |     163 |
+| 3 | Out Of Control                     | Hoobastank  |    37 |     101 |
+| 4 | RATATATA                           | BABYMETAL   |    31 |     112 |
+```
 
-## 2. Generate a recap
+Every track keeps its video ID, so the list turns straight into a real playlist.
+
+## What makes the numbers right
+
+**Skips don't count as plays.** A track you abandoned after eight seconds isn't a track you listened to. Anything dropped inside a minute is excluded, which on a real year removed 2,554 phantom plays.
+
+**Every version of a song counts as that song.** The studio take, the live take and the reissue are one entry, credited to whichever version you actually played. One song split across two uploads had been sitting at 30 plays and 16 instead of 46 — enough to cost it the top spot for the year.
+
+**Artists are the real ones.** YouTube labels plenty of tracks `Release` or leaves them blank. Those get resolved from the label's own credits for that exact video, not guessed from the title — so a small band never loses its songs to a famous act with the same name.
+
+**Nothing is invented.** Ranking is play count, highest first. Weighted scoring was built, measured against real listening history, and thrown away: it changed nothing that mattered and made the result harder to trust.
+
+**It doesn't assume your language.** Nothing keys off English or any other language — not the way skips are found, not the way versions are matched, not the way artists are read.
+
+## Get your recap
+
+**1. Export your history.** At [Google Takeout](https://takeout.google.com): *Deselect all* → **YouTube and YouTube Music** → under *All YouTube data included* keep only **history** → under *Multiple formats* set history to **JSON**. Export, then unzip what arrives. You want `watch-history.json`.
+
+**2. Run it.**
 
 ```bash
 node recap.ts watch-history.json 2025
-node recap.ts watch-history.json h1-2025 50
-node recap.ts watch-history.json summer-2023
 ```
 
-Arguments are the history file, the period, and optionally how many tracks (default 100).
+**3. Open `out/`.** Your recap is there as a readable list, as data, and as a playlist link.
 
-Exports are capped, so a history reaching further back means several of them. List them comma-separated and they merge — records duplicated between overlapping exports are dropped, so the same file listed twice changes nothing:
+That's it. No install, no sign-up, no build step. Needs Node 22.18 or newer.
+
+### Any period you like
+
+```bash
+node recap.ts watch-history.json 2023                      # a year
+node recap.ts watch-history.json h1-2025                   # a half
+node recap.ts watch-history.json q3-2024                   # a quarter
+node recap.ts watch-history.json summer-2023               # a season
+node recap.ts watch-history.json 2023-06-01..2023-08-31    # any range
+```
+
+Add a number to change the length: `node recap.ts watch-history.json 2025 50`.
+
+Google caps each export, so a history reaching further back means several of them. List them together and they merge, duplicates and all:
 
 ```bash
 node recap.ts watch-history-2024.json,watch-history-2026.json 2025
 ```
 
-| Period | Meaning |
-| --- | --- |
-| `2025` | calendar year |
-| `h1-2025`, `h2-2025` | halves |
-| `q1-2025` … `q4-2025` | quarters |
-| `summer-2023` | meteorological season, northern hemisphere — also `winter`, `spring`, `autumn`/`fall` |
-| `2023-06-01..2023-08-31` | any range, both dates included |
+## Turn it into a playlist
 
-Each run writes three files to `out/`:
+Open `out/2025.playlist.html` and follow the link while signed in to YouTube. It builds the playlist for you, ready to save.
 
-- `<period>.md` — the ranked list, readable
-- `<period>.json` — the same data with video IDs, for building the playlist
-- `<period>.playlist.html` — see [Turning it into a playlist](#turning-it-into-a-playlist)
+No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
 
-## 3. Fill in missing artists (optional)
+## Better artists, and listening time
 
-Some tracks reach the ranking with a placeholder instead of an artist — `Release`, or `Music Library Uploads` for your own uploaded files. `enrich.ts` resolves those.
+Optional, and worth it. With a free YouTube API key, every track gets the artist its label credited and the recap can tell you hours listened rather than only play counts.
 
 ```bash
-export YOUTUBE_API_KEY=...
+cp .env.sample .env      # then paste your key in
 node enrich.ts
+node recap.ts watch-history.json 2025
 ```
 
-It asks YouTube first. Tracks generated for a label state their credits in the video description, keyed to the video ID, so the answer is exact and needs no checking. Anything without such credits falls back to searching Deezer and iTunes by title, and a name is only accepted when both independently return the same one.
+Getting the key takes about a minute — create a project at [console.cloud.google.com](https://console.cloud.google.com), enable **YouTube Data API v3**, then make an **API key** at `https://console.cloud.google.com/apis/credentials?project=<project-id>`. It's a plain API key, so there's no consent screen and no app review. A whole history costs a rounding error against the free daily allowance.
 
-Tracks that no catalogue carries — mashups, meme edits, personal uploads — are recorded as YouTube-only. That is a real answer, not a failure, and it stops them being looked up again.
+## Browse your recaps
 
-The same request also returns each track's length, cached in `durations.json`, which is what lets a recap report listening time rather than only play counts.
-
-Results go to `artists.json`, which `recap.ts` applies on the next run. Re-run the recap afterwards to see them.
-
-Running without `YOUTUBE_API_KEY` works, but only the catalogue fallback is available, which resolves less and is less certain.
-
-### Getting an API key
-
-You need an **API key**, not an OAuth client — this only reads public data.
-
-1. Create a project at [console.cloud.google.com](https://console.cloud.google.com)
-2. Enable **YouTube Data API v3** in **APIs & Services → Library**
-3. Create the key at `https://console.cloud.google.com/apis/credentials?project=<project-id>` → **Create credentials → API key**
-
-There is no consent screen, no app verification and no OAuth flow. One request covers 50 videos and costs a single quota unit against a daily 10,000, so even a very large history costs a rounding error.
-
-## Turning it into a playlist
-
-Every run writes `out/<period>.playlist.html`. Open that file and follow the link while signed in, and YouTube builds a temporary playlist you can save. No API key, no OAuth, no quota.
-
-It is capped at **50 videos** and relies on an undocumented URL, so treat it as a convenience. Creating a longer playlist properly needs OAuth and the YouTube Data API, where each added track costs 50 quota units — a 100-track playlist is about half a day's allowance.
-
-## How the ranking works
-
-Play count, highest first, ties broken by whichever was played more recently.
-
-Deliberately nothing cleverer. Weighted scoring — recency, listening days, repeat intensity — was implemented and measured against real history, and rejected: unique listening days turned out to be identical to play count for 99.6% of tracks, and repeat listening was too rare to rank on. Sophistication belongs in cleaning the data before counting it, not in the scoring formula.
-
-**A track abandoned within 60 seconds counts as a skip, not a play.** Takeout records no playback duration, so the gap until the next listen stands in for one. This is an estimate; `--min-seconds=0` counts every event, and any other value overrides the threshold.
-
-## Known limits
-
-**Exports get truncated.** Row caps and history auto-delete mean an export often covers less than you expect. Every recap reports how much of its period the export actually covers, so a year built from five months says so instead of quietly ranking a fraction of itself.
-
-**Only YouTube Music listens count.** Music videos watched on youtube.com proper are excluded, matching what Recap counted.
-
-**Every version of a song counts as that song.** The studio take, a reissue and a live take are one entry, represented by whichever version was played most. Version qualifiers live in brackets, so removing brackets tells a song apart from a version of it without depending on the word for "live" in any particular language — measured against real history, 97% of live markers are bracketed. The remainder, written after a dash or bare in the title, are missed.
-
-**Merging only reaches tracks already in a ranking.** `enrich.ts` fetches credits for the tracks a recap lists, so versions are counted together only if one of them charted on its own. A song split across two videos that both sit below the cutoff stays split, and will not climb into the list.
-
-**Merging needs `enrich.ts`.** Without it, or for uploads carrying no credits, every video stands alone.
-
-**Titles keep any localised prefix.** Stripping `Watched ` only works on English exports. Tracks resolved through `enrich.ts` are unaffected, since their titles come from the credits rather than from the export.
-
-## Privacy
-
-Your listening history is sensitive. `watch-history.json`, `out/` and `artists.json` are all gitignored, nothing is sent anywhere except the metadata lookups you explicitly run, and those only ever send a track title or a video ID.
-
-## Development
+They're plain files, so anything works. To flip through them in a browser:
 
 ```bash
-node recap.ts --selftest
-node enrich.ts --selftest
+npx serve ./out/ -l 4900
 ```
+
+## Your history stays yours
+
+It never leaves your machine. There's no account, no server, no telemetry — the only thing that goes out is a track title or video ID when you ask for artists, and only then.
+
+Your history, your recaps and everything derived from them are kept out of git already, so you can fork this and publish it without publishing yourself.
+
+## Good to know
+
+**Exports are often shorter than you expect.** Row caps and history auto-delete both bite, and one real export turned out to hold exactly two years. Every recap tells you how much of its period it actually covers, so a year built from five months says so rather than quietly ranking a fraction of itself.
+
+**Only YouTube Music counts.** Music videos watched on youtube.com proper are left out, which is what Recap did too.
+
+**Some tracks exist only on YouTube.** Mashups, meme edits and your own uploads aren't in any music catalogue. They're kept, with whatever name YouTube gave them.
