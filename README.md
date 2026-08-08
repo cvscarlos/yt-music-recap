@@ -101,9 +101,11 @@ Deliberately nothing cleverer. Weighted scoring — recency, listening days, rep
 
 **Only YouTube Music listens count.** Music videos watched on youtube.com proper are excluded, matching what Recap counted.
 
-**Ranking is per video ID, not per song.** One song uploaded under several IDs ranks several times. It has not been worth merging, because a playlist needs video IDs anyway.
+**Merging only reaches tracks already in a ranking.** `enrich.ts` fetches credits for the tracks a recap lists, so two uploads of one recording are counted together only if at least one of them charted on its own. A song split across two videos that both sit below the cutoff stays split, and will not climb into the list.
 
-**Titles keep any localised prefix.** Stripping `Watched ` only works on English exports.
+**A recording is identified by its album.** That keeps a live take separate from the studio one without depending on the word for "live", but it also means the same recording issued on a compilation counts separately from the original album. Missing a merge leaves two visible entries; a wrong merge would silently corrupt a count, so the conservative side was chosen.
+
+**Titles keep any localised prefix.** Stripping `Watched ` only works on English exports. Tracks resolved through `enrich.ts` are unaffected, since their titles come from the credits rather than from the export.
 
 ## Privacy
 
