@@ -110,3 +110,5 @@ Your history, your recaps and everything derived from them are kept out of git a
 **Only YouTube Music counts.** Music videos watched on youtube.com proper are left out, which is what Recap did too.
 
 **Some tracks exist only on YouTube.** Mashups, meme edits and your own uploads aren't in any music catalogue. They're kept, with whatever name YouTube gave them.
+
+**Versions are counted together only once one of them charts.** Artists and lengths are fetched for the tracks a recap already lists, so a song split across two videos that both fall below the cut-off stays split, and their combined plays won't lift it into the list.

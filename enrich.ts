@@ -25,25 +25,10 @@ try {
 // gave us risks replacing a right answer with a famous same-named artist.
 const PLACEHOLDERS = new Set(["Release", "Music Library Uploads", "Various Artists", ""]);
 
-export const normalize = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // strip accents so "É Só" matches "e so"
-    .replace(/\(.*?\)|\[.*?\]/g, "") // drop "(Remix)", "[Official Video]"
-    .replace(/\b(feat|ft|featuring|with)\b.*$/, "")
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-// Identifies a song, so its studio take, its live take and a reissue on a compilation all
-// answer to one name. Version qualifiers live in brackets — "(Live In Texas)", "(Ao Vivo)",
-// "(Bass Boosted)" — so removing every bracket separates the song from the version of it
-// without knowing any of those words, in any language. The album is deliberately excluded:
-// versions of one song differ on it, which would put each of them under its own key.
-// Strips punctuation and accents while keeping letters and digits of every script: a
-// Latin-only filter would erase a Japanese or Cyrillic title entirely and collapse every
-// such song onto one key.
+// Strips punctuation and accents while keeping letters and digits of every script. Matching
+// on Latin characters alone would erase a Japanese, Cyrillic, Greek or Arabic value down to
+// an empty string, and empty strings compare equal to each other — so unrelated titles look
+// identical and unrelated artists look like two sources agreeing.
 const foldText = (s: string) =>
   s
     .toLowerCase()
@@ -52,6 +37,21 @@ const foldText = (s: string) =>
     .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+// For comparing a search result against what was asked for: also discards the qualifiers a
+// catalogue adds to a title, which the asked-for title will not have.
+export const normalize = (s: string) =>
+  foldText(
+    s
+      .replace(/\(.*?\)|\[.*?\]/g, " ") // drop "(Remix)", "[Official Video]"
+      .replace(/\b(?:feat|ft|featuring|with)\b.*$/i, " "),
+  );
+
+// Identifies a song, so its studio take, its live take and a reissue on a compilation all
+// answer to one name. Version qualifiers live in brackets — "(Live In Texas)", "(Ao Vivo)",
+// "(Bass Boosted)" — so removing every bracket separates the song from the version of it
+// without knowing any of those words, in any language. The album is deliberately excluded:
+// versions of one song differ on it, which would put each of them under its own key.
 
 export const songKey = (title: string, artist: string) => {
   const song = foldText(title.replace(/[(\[][^)\]]*[)\]]/g, " "));
@@ -174,7 +174,9 @@ export function plausibleArtist(fullTitle: string, query: string, artist: string
 async function deezer(title: string): Promise<Candidate> {
   for (const q of queryVariants(title)) {
     const r = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`);
-    if (!r.ok) continue;
+    // Refusing to answer is not the same as answering "no such track". Throwing keeps the
+    // difference, so a rate limit or an outage is never recorded as a settled result.
+    if (!r.ok) throw new Error(`search returned ${r.status}`);
     const hit = ((await r.json()) as any).data?.find(
       (d: any) => titlesMatch(q, d.title) && plausibleArtist(title, q, d.artist.name),
     );
@@ -186,7 +188,9 @@ async function deezer(title: string): Promise<Candidate> {
 async function itunes(title: string): Promise<Candidate> {
   for (const q of queryVariants(title)) {
     const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=5`);
-    if (!r.ok) continue;
+    // Refusing to answer is not the same as answering "no such track". Throwing keeps the
+    // difference, so a rate limit or an outage is never recorded as a settled result.
+    if (!r.ok) throw new Error(`search returned ${r.status}`);
     const hit = ((await r.json()) as any).results?.find(
       (x: any) => titlesMatch(q, x.trackName) && plausibleArtist(title, q, x.artistName),
     );
@@ -200,20 +204,27 @@ const loadCache = <T,>(file: string): Record<string, T> =>
 
 // What the recaps still need answered. Reading the recaps rather than the history means
 // only tracks that already charted are looked up.
-function collectWork(store: Record<string, string | null>, lengths: Record<string, number>) {
+function collectWork(
+  store: Record<string, string | null>,
+  lengths: Record<string, number>,
+  recordings: Record<string, string>,
+) {
   const todo = new Map<string, string>();
-  const needLength = new Set<string>();
+  // One request answers length and song together, so a video is worth asking about when
+  // either is missing. Checking only lengths left a deleted or half-written recordings
+  // cache unrepairable, since nothing would ever ask about those videos again.
+  const needLookup = new Set<string>();
   for (const f of readdirSync("out").filter((x) => x.endsWith(".json"))) {
     for (const t of JSON.parse(readFileSync(`out/${f}`, "utf8"))) {
       if (PLACEHOLDERS.has(t.artist) && !(t.videoId in store)) todo.set(t.videoId, t.title);
-      if (!(t.videoId in lengths)) needLength.add(t.videoId);
+      if (!(t.videoId in lengths) || !(t.videoId in recordings)) needLookup.add(t.videoId);
     }
   }
-  return { todo, needLength: [...needLength] };
+  return { todo, needLookup: [...needLookup] };
 }
 
-type Tally = { fromYouTube: number; agreed: number; youtubeOnly: number; total: number };
-const ambiguous = (t: Tally) => t.total - t.fromYouTube - t.agreed - t.youtubeOnly;
+type Tally = { fromYouTube: number; agreed: number; youtubeOnly: number; unanswered: number; total: number };
+const ambiguous = (t: Tally) => t.total - t.fromYouTube - t.agreed - t.youtubeOnly - t.unanswered;
 
 function writeReview(tally: Tally, rows: string[]) {
   writeFileSync(
@@ -247,9 +258,9 @@ async function main() {
   const lengths = loadCache<number>("durations.json");
   const recordings = loadCache<string>("recordings.json");
 
-  const { todo, needLength } = collectWork(store, lengths);
+  const { todo, needLookup } = collectWork(store, lengths, recordings);
   const key = process.env.YOUTUBE_API_KEY;
-  if (!todo.size && !needLength.length) {
+  if (!todo.size && !needLookup.length) {
     console.log("Nothing to look up — every track already has an artist and a length.");
     return;
   }
@@ -259,8 +270,8 @@ async function main() {
   // One pass covers both questions: the tracks missing an artist are a subset of these.
   let authoritative = new Map<string, string>();
   if (key) {
-    console.log(`Asking YouTube about ${needLength.length} videos (${Math.ceil(needLength.length / 50)} requests)...`);
-    const got = await youtubeLookup(needLength, key);
+    console.log(`Asking YouTube about ${needLookup.length} videos (${Math.ceil(needLookup.length / 50)} requests)...`);
+    const got = await youtubeLookup(needLookup, key);
     authoritative = got.artists;
     for (const [id, seconds] of got.durations) lengths[id] = seconds;
     for (const [id, recording] of got.recordings) recordings[id] = recording;
@@ -278,7 +289,7 @@ async function main() {
   console.log(`Resolving ${todo.size} tracks with a placeholder artist...\n`);
 
   const rows: string[] = [];
-  const tally: Tally = { fromYouTube: 0, agreed: 0, youtubeOnly: 0, total: todo.size };
+  const tally: Tally = { fromYouTube: 0, agreed: 0, youtubeOnly: 0, unanswered: 0, total: todo.size };
   for (const [videoId, title] of todo) {
     const stated = authoritative.get(videoId);
     if (stated) {
@@ -288,17 +299,30 @@ async function main() {
       rows.push(`| ${title.replace(/\|/g, "/")} | ${stated} | — | **from YouTube** | ${videoId} |`);
       continue;
     }
-    const [dz, it] = await Promise.all([deezer(title).catch(() => null), itunes(title).catch(() => null)]);
+    let unanswered = false;
+    const ask = (search: Promise<Candidate>) =>
+      search.catch(() => {
+        unanswered = true;
+        return null;
+      });
+    const [dz, it] = await Promise.all([ask(deezer(title)), ask(itunes(title))]);
     await new Promise((done) => setTimeout(done, 350)); // iTunes throttles near 20/minute
 
-    const same = dz && it && normalize(dz.artist) === normalize(it.artist);
+    // Two sources naming the same artist is the whole basis for trusting either of them,
+    // so a comparison of two blanks must not pass for it.
+    const same = dz && it && normalize(dz.artist) && normalize(dz.artist) === normalize(it.artist);
     let verdict: string;
     if (same) {
       store[videoId] = dz!.artist;
       tally.agreed++;
       verdict = `AGREED  ${dz!.artist}`;
+    } else if (unanswered) {
+      // A search that could not run tells us nothing, and recording nothing as an answer
+      // would close the question forever. Left out of the store so the next run retries.
+      tally.unanswered++;
+      verdict = `NOT REACHED  (retry later)`;
     } else if (!dz && !it) {
-      // Neither catalogue has it under any spelling, so it is native to YouTube.
+      // Both searched and neither has it under any spelling, so it is native to YouTube.
       store[videoId] = null;
       tally.youtubeOnly++;
       verdict = `YOUTUBE-ONLY`;
@@ -330,6 +354,13 @@ function selftest() {
   assert.ok(!titlesMatch("Sonne", "Sonho"), "two edits in a short title is a different song");
   assert.ok(!titlesMatch("Amor", "Ator"), "very short titles stay strict");
   assert.ok(!titlesMatch("Gloria", "Gloria Estefan"), "an artist name appended is not the same title");
+
+  // Matching on Latin characters alone reduced these to empty strings, which made every
+  // non-Latin title unmatchable and every pair of non-Latin artists look like agreement.
+  assert.ok(titlesMatch("一輪の花", "一輪の花"), "a non-Latin title matches itself");
+  assert.ok(titlesMatch("Зачем", "Зачем"), "and so does a Cyrillic one");
+  assert.notEqual(normalize("高橋洋子"), normalize("残酷な天使"), "two non-Latin artists are not the same artist");
+  assert.ok(normalize("一輪の花"), "a non-Latin value does not normalize away to nothing");
 
   assert.deepEqual(queryVariants("Celldweller feat. X - Shapeshifter"), ["Celldweller feat. X - Shapeshifter", "Shapeshifter"], "falls back to the text after the dash");
   assert.deepEqual(queryVariants("Bodies"), ["Bodies"], "a plain title is searched once");

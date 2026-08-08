@@ -86,6 +86,7 @@ export function rank(
   limit: number,
   minSeconds = DEFAULT_MIN_SECONDS,
   recordings: Record<string, string> = {},
+  durations: Record<string, number> = {},
 ) {
   const { start, end, label } = parsePeriod(period);
   const seen = new Set<string>(); // same video at the same instant = duplicate export
@@ -158,12 +159,17 @@ export function rank(
   const tracks: Track[] = [...byVideo.values()]
     .map((song) => {
       const [videoId, top] = [...song.versions].sort((a, b) => b[1].plays - a[1].plays)[0];
+      // Each version is timed by its own length. A live take can run twice as long as the
+      // studio one, so charging every play to the representative's length misreports the
+      // time spent. Versions of unknown length simply contribute nothing.
+      const seconds = [...song.versions].reduce((total, [id, v]) => total + (durations[id] ?? 0) * v.plays, 0);
       return {
         videoId,
         title: top.title,
         artist: top.artist,
         plays: song.plays,
         lastPlayedAt: song.lastPlayedAt,
+        ...(seconds ? { minutes: Math.round(seconds / 60) } : {}),
         ...(song.versions.size > 1 ? { versions: song.versions.size } : {}),
       };
     })
@@ -286,6 +292,11 @@ function selftest() {
 
   assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without song data every video stands alone");
 
+  // Each version is timed by its own length: three 3-minute plays plus one 10-minute live
+  // play is 19 minutes. Charging all four to the representative's length would say 12.
+  const timed = rank(versions, "summer-2023", 100, 0, { studio: song, reissue: song, live: song }, { studio: 180, reissue: 180, live: 600 });
+  assert.equal(timed.tracks[0].minutes, 19, "a longer version contributes its own length");
+
   console.log("selftest ok");
 }
 
@@ -311,7 +322,10 @@ if (args.includes("--selftest")) {
   const recordings: Record<string, string> = existsSync("recordings.json")
     ? JSON.parse(readFileSync("recordings.json", "utf8"))
     : {};
-  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings);
+  const durations: Record<string, number> = existsSync("durations.json")
+    ? JSON.parse(readFileSync("durations.json", "utf8"))
+    : {};
+  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings, durations);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
 
   // Artists resolved by enrich.ts, or corrected by hand afterwards. Only tracks whose
@@ -322,12 +336,6 @@ if (args.includes("--selftest")) {
     for (const t of result.tracks) t.artist = artists[t.videoId] ?? t.artist;
   }
 
-  // Track lengths are optional; without them the ranking is unchanged and the minutes
-  // column simply stays empty.
-  if (existsSync("durations.json")) {
-    const lengths: Record<string, number> = JSON.parse(readFileSync("durations.json", "utf8"));
-    for (const t of result.tracks) if (lengths[t.videoId]) t.minutes = Math.round((lengths[t.videoId] * t.plays) / 60);
-  }
 
   if (!result.listens) {
     console.error(`No YouTube Music listens found in ${period}.`);
