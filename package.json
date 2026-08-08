@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node recap.ts --selftest && node enrich.ts --selftest",
+    "test": "node recap.ts --selftest && node enrich.ts --selftest && node export.ts --selftest",
     "check": "npm run typecheck && npm run test",
     "prepare": "git config core.hooksPath .githooks"
   }

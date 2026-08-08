@@ -79,6 +79,14 @@ No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
 
 Music is licensed country by country, and YouTube hides whatever isn't licensed where you are — a playlist can arrive quietly missing a dozen songs. Set `RECAP_REGION` in `.env` to the country you watch from and those are swapped out for the next tracks down, so you get fifty that play.
 
+The list this makes is a temporary one, which YouTube will play but won't let you keep. For a permanent playlist in your own account:
+
+```bash
+node export.ts 2025
+```
+
+It's created private, named after the period, and it's yours — no length limit and nothing to save by hand. This one needs sign-in rather than just a key, so add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` (see the sample) and approve it in the browser once.
+
 ## Better artists, and listening time
 
 Optional, and worth it. With a free YouTube API key, every track gets the artist its label credited and the recap can tell you hours listened rather than only play counts.
