@@ -3,3 +3,6 @@ tmp/
 out/
 *.zip
 watch-history.json
+
+# curated artist fixes derived from listening history
+artists.json

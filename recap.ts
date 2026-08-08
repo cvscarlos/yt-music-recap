@@ -6,7 +6,7 @@
 //
 // period: 2023 | summer-2023 | 2023-06-01..2023-08-31
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
 
 type Activity = {
@@ -249,6 +249,14 @@ if (args.includes("--selftest")) {
   const activities: Activity[] = JSON.parse(readFileSync(file, "utf8"));
   const result = rank(activities, period, Number(limitArg ?? 100), minSeconds);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
+
+  // Artists resolved by enrich.ts, or corrected by hand afterwards. Only tracks whose
+  // Takeout channel was a placeholder ever appear here, so this cannot overwrite a real
+  // artist name with a same-titled song by someone more famous.
+  if (existsSync("artists.json")) {
+    const artists: Record<string, string> = JSON.parse(readFileSync("artists.json", "utf8"));
+    for (const t of result.tracks) t.artist = artists[t.videoId] ?? t.artist;
+  }
 
   if (!result.listens) {
     console.error(`No YouTube Music listens found in ${period}.`);
