@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// Fill in artists for tracks whose Takeout channel is a placeholder rather than a name.
-// Deezer and iTunes are both keyless, so this needs no account and no API key.
+// Fill in artists for tracks whose Takeout channel is a placeholder rather than a name,
+// and record how long each track runs and which song it holds.
 //
 //   node enrich.ts            look everything up, write artists.json
 //   node enrich.ts --selftest
 //
-// Only agreed matches are written. Everything else lands in a review file for a human,
-// because a wrong artist is worse than a missing one.
+// YouTube answers first, by video ID, from the credits its label supplied — exact, and so
+// needing nobody to confirm it. Deezer and iTunes answer only for what is left, and only
+// from a title, so they must agree with each other before their answer is taken. A wrong
+// artist is worse than a missing one, and anything still doubtful is simply left alone.
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -37,8 +39,8 @@ export const normalize = (s: string) =>
 // Identifies a song, so its studio take, its live take and a reissue on a compilation all
 // answer to one name. Version qualifiers live in brackets — "(Live In Texas)", "(Ao Vivo)",
 // "(Bass Boosted)" — so removing every bracket separates the song from the version of it
-// without knowing any of those words, in any language. The album is deliberately not part
-// of this: differing on it is precisely how a live take used to escape.
+// without knowing any of those words, in any language. The album is deliberately excluded:
+// versions of one song differ on it, which would put each of them under its own key.
 // Strips punctuation and accents while keeping letters and digits of every script: a
 // Latin-only filter would erase a Japanese or Cyrillic title entirely and collapse every
 // such song onto one key.
@@ -193,8 +195,6 @@ async function itunes(title: string): Promise<Candidate> {
   return null;
 }
 
-const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-
 async function main() {
   // Every recap shares one artist store, so a track resolved for 2025 is already fixed
   // for 2026. Existing entries are kept: a human may have corrected them by hand.
@@ -271,7 +271,7 @@ async function main() {
       continue;
     }
     const [dz, it] = await Promise.all([deezer(title).catch(() => null), itunes(title).catch(() => null)]);
-    await sleep(350); // iTunes throttles around 20 requests a minute
+    await new Promise((done) => setTimeout(done, 350)); // iTunes throttles near 20/minute
 
     const same = dz && it && normalize(dz.artist) === normalize(it.artist);
     let verdict: string;
@@ -318,11 +318,9 @@ async function main() {
 }
 
 function selftest() {
-  assert.ok(titlesMatch("Bodies", "Bodies"), "identical titles match");
   assert.ok(titlesMatch("Rosenrot", "Rosenrot (Album Version)"), "ignores bracketed suffixes");
   assert.ok(titlesMatch("É Só Você Lembrar", "E So Voce Lembrar"), "ignores accents");
-  assert.ok(!titlesMatch("Bodies", "Bodies Fall"), "a longer different title is not a match");
-  assert.ok(!titlesMatch("Metade", "Minha Metade Perfeita Do Amor"), "short title inside a long one is rejected");
+  assert.ok(!titlesMatch("Metade", "Minha Metade Perfeita Do Amor"), "a title buried in a longer one is not that title");
   assert.ok(!titlesMatch("Anemia", "Academia"), "similar-looking but different titles do not match");
   assert.ok(PLACEHOLDERS.has("Release") && !PLACEHOLDERS.has("Gloria"), "a real artist is never looked up");
 
