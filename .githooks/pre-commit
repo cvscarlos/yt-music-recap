@@ -1,0 +1,3 @@
+#!/bin/sh
+# Types and self-checks both run in about a second, so there is no reason to defer them.
+exec npm run --silent check

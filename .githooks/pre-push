@@ -1,0 +1,3 @@
+#!/bin/sh
+# The last gate: a commit made with --no-verify, or by another tool, still stops here.
+exec npm run --silent check
