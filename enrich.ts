@@ -195,39 +195,59 @@ async function itunes(title: string): Promise<Candidate> {
   return null;
 }
 
-async function main() {
-  // Every recap shares one artist store, so a track resolved for 2025 is already fixed
-  // for 2026. Existing entries are kept: a human may have corrected them by hand.
-  //
-  // A null value records a track that exists only on YouTube — a mashup, a meme edit, a
-  // personal upload. That is a real answer, not a failed one, and storing it stops the
-  // track being queried again on every future run.
-  const store: Record<string, string | null> = existsSync("artists.json")
-    ? JSON.parse(readFileSync("artists.json", "utf8"))
-    : {};
+const loadCache = <T,>(file: string): Record<string, T> =>
+  existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
 
-  // Track lengths turn a play count into listening time, which is what a Recap actually
-  // shows. They are cached separately because they never change, while an artist might be
-  // corrected by hand.
-  const lengths: Record<string, number> = existsSync("durations.json")
-    ? JSON.parse(readFileSync("durations.json", "utf8"))
-    : {};
-
-  // Which recording each video holds, so repeated uploads of one recording can be counted
-  // together while genuinely different takes stay apart.
-  const recordings: Record<string, string> = existsSync("recordings.json")
-    ? JSON.parse(readFileSync("recordings.json", "utf8"))
-    : {};
-
+// What the recaps still need answered. Reading the recaps rather than the history means
+// only tracks that already charted are looked up.
+function collectWork(store: Record<string, string | null>, lengths: Record<string, number>) {
   const todo = new Map<string, string>();
-  const needLength: string[] = [];
+  const needLength = new Set<string>();
   for (const f of readdirSync("out").filter((x) => x.endsWith(".json"))) {
     for (const t of JSON.parse(readFileSync(`out/${f}`, "utf8"))) {
       if (PLACEHOLDERS.has(t.artist) && !(t.videoId in store)) todo.set(t.videoId, t.title);
-      if (!(t.videoId in lengths) && !needLength.includes(t.videoId)) needLength.push(t.videoId);
+      if (!(t.videoId in lengths)) needLength.add(t.videoId);
     }
   }
+  return { todo, needLength: [...needLength] };
+}
 
+type Tally = { fromYouTube: number; agreed: number; youtubeOnly: number; total: number };
+const ambiguous = (t: Tally) => t.total - t.fromYouTube - t.agreed - t.youtubeOnly;
+
+function writeReview(tally: Tally, rows: string[]) {
+  writeFileSync(
+    "out/artists-review.md",
+    [
+      `# Artist lookup review`,
+      ``,
+      `Of ${tally.total} tracks: **${tally.fromYouTube} stated by YouTube**, **${tally.agreed} agreed by both catalogues**, **${tally.youtubeOnly} exist only on YouTube**, **${ambiguous(tally)} still ambiguous**.`,
+      ``,
+      `Rows marked *from YouTube* come from the label's own credits for that video ID, so they need no checking.`,
+      ``,
+      `YouTube-only tracks are mashups, meme edits and personal uploads that no catalogue carries. They are recorded as resolved so they are not looked up again — they keep the channel name Takeout gave them.`,
+      ``,
+      `Ambiguous rows are left alone and keep their channel name; nothing downstream waits on them. To override one anyway, add it to artists.json as \`"videoId": "Artist"\` — hand edits are never overwritten.`,
+      ``,
+      `| Track | Deezer | iTunes | Verdict | Video |`,
+      `| --- | --- | --- | --- | --- |`,
+      ...rows,
+      ``,
+    ].join("\n"),
+  );
+}
+
+async function main() {
+  // Every recap shares one artist store, so a track resolved for 2025 is already fixed for
+  // 2026, and existing entries are kept because a human may have corrected them by hand. A
+  // null value records a track that exists only on YouTube — a mashup, a meme edit, a
+  // personal upload — which is a real answer, and storing it stops the track being asked
+  // about again. Lengths and songs are cached apart from it: they never need correcting.
+  const store = loadCache<string | null>("artists.json");
+  const lengths = loadCache<number>("durations.json");
+  const recordings = loadCache<string>("recordings.json");
+
+  const { todo, needLength } = collectWork(store, lengths);
   const key = process.env.YOUTUBE_API_KEY;
   if (!todo.size && !needLength.length) {
     console.log("Nothing to look up — every track already has an artist and a length.");
@@ -258,14 +278,12 @@ async function main() {
   console.log(`Resolving ${todo.size} tracks with a placeholder artist...\n`);
 
   const rows: string[] = [];
-  let fromYouTube = 0;
-  let agreed = 0;
-  let youtubeOnly = 0;
+  const tally: Tally = { fromYouTube: 0, agreed: 0, youtubeOnly: 0, total: todo.size };
   for (const [videoId, title] of todo) {
     const stated = authoritative.get(videoId);
     if (stated) {
       store[videoId] = stated;
-      fromYouTube++;
+      tally.fromYouTube++;
       console.log(`  ${`YOUTUBE  ${stated}`.padEnd(46)} ${title.slice(0, 50)}`);
       rows.push(`| ${title.replace(/\|/g, "/")} | ${stated} | — | **from YouTube** | ${videoId} |`);
       continue;
@@ -277,12 +295,12 @@ async function main() {
     let verdict: string;
     if (same) {
       store[videoId] = dz!.artist;
-      agreed++;
+      tally.agreed++;
       verdict = `AGREED  ${dz!.artist}`;
     } else if (!dz && !it) {
       // Neither catalogue has it under any spelling, so it is native to YouTube.
       store[videoId] = null;
-      youtubeOnly++;
+      tally.youtubeOnly++;
       verdict = `YOUTUBE-ONLY`;
     } else {
       verdict = `REVIEW  deezer=${dz?.artist ?? "—"}  itunes=${it?.artist ?? "—"}`;
@@ -292,28 +310,10 @@ async function main() {
   }
 
   writeFileSync("artists.json", JSON.stringify(store, null, 2) + "\n");
-  writeFileSync(
-    "out/artists-review.md",
-    [
-      `# Artist lookup review`,
-      ``,
-      `Of ${todo.size} tracks: **${fromYouTube} stated by YouTube**, **${agreed} agreed by both catalogues**, **${youtubeOnly} exist only on YouTube**, **${todo.size - fromYouTube - agreed - youtubeOnly} still ambiguous**.`,
-      ``,
-      `Rows marked *from YouTube* come from the label's own credits for that video ID, so they need no checking.`,
-      ``,
-      `YouTube-only tracks are mashups, meme edits and personal uploads that no catalogue carries. They are recorded as resolved so they are not looked up again — they keep the channel name Takeout gave them.`,
-      ``,
-      `Ambiguous rows are left alone and keep their channel name; nothing downstream waits on them. To override one anyway, add it to artists.json as \`"videoId": "Artist"\` — hand edits are never overwritten.`,
-      ``,
-      `| Track | Deezer | iTunes | Verdict | Video |`,
-      `| --- | --- | --- | --- | --- |`,
-      ...rows,
-      ``,
-    ].join("\n"),
-  );
+  writeReview(tally, rows);
   console.log(
-    `\n${fromYouTube} from YouTube, ${agreed} agreed by catalogues, ${youtubeOnly} YouTube-only, ` +
-      `${todo.size - fromYouTube - agreed - youtubeOnly} left ambiguous. See out/artists-review.md.`,
+    `\n${tally.fromYouTube} from YouTube, ${tally.agreed} agreed by catalogues, ` +
+      `${tally.youtubeOnly} YouTube-only, ${ambiguous(tally)} left ambiguous. See out/artists-review.md.`,
   );
 }
 
