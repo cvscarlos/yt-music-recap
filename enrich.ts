@@ -83,26 +83,37 @@ export function parseArtTrack(description: string): string | null {
   return artists.length ? artists.join(", ") : null;
 }
 
-// One request covers 50 videos and costs a single quota unit, so the daily allowance is
-// nowhere near a constraint here.
-async function youtubeArtists(ids: string[], key: string): Promise<Map<string, string>> {
-  const found = new Map<string, string>();
+// "PT3M22S" -> 202. Hours appear on long uploads, and a bare "PT0S" on live streams.
+export function parseDuration(iso: string): number | null {
+  const m = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return null;
+  const seconds = Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+  return seconds || null;
+}
+
+// One request covers 50 videos and costs a single quota unit whatever it asks for, so
+// credits and durations come back together at no extra cost.
+async function youtubeLookup(ids: string[], key: string) {
+  const artists = new Map<string, string>();
+  const durations = new Map<string, number>();
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50);
     const r = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${batch.join(",")}&key=${key}`,
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${batch.join(",")}&key=${key}`,
     );
     if (!r.ok) {
       console.error(`  YouTube API returned ${r.status} — falling back to catalogue search.`);
-      return found;
+      break;
     }
     // Private uploads and deleted videos are simply absent from the response.
     for (const item of ((await r.json()) as any).items ?? []) {
       const artist = parseArtTrack(item.snippet?.description ?? "");
-      if (artist) found.set(item.id, artist);
+      if (artist) artists.set(item.id, artist);
+      const seconds = parseDuration(item.contentDetails?.duration ?? "");
+      if (seconds) durations.set(item.id, seconds);
     }
   }
-  return found;
+  return { artists, durations };
 }
 
 // YouTube titles often carry the artist as well ("Celldweller feat. X - Shapeshifter"), so
@@ -160,26 +171,48 @@ async function main() {
     ? JSON.parse(readFileSync("artists.json", "utf8"))
     : {};
 
+  // Track lengths turn a play count into listening time, which is what a Recap actually
+  // shows. They are cached separately because they never change, while an artist might be
+  // corrected by hand.
+  const lengths: Record<string, number> = existsSync("durations.json")
+    ? JSON.parse(readFileSync("durations.json", "utf8"))
+    : {};
+
   const todo = new Map<string, string>();
+  const needLength: string[] = [];
   for (const f of readdirSync("out").filter((x) => x.endsWith(".json"))) {
     for (const t of JSON.parse(readFileSync(`out/${f}`, "utf8"))) {
       if (PLACEHOLDERS.has(t.artist) && !(t.videoId in store)) todo.set(t.videoId, t.title);
+      if (!(t.videoId in lengths) && !needLength.includes(t.videoId)) needLength.push(t.videoId);
     }
   }
 
-  if (!todo.size) {
-    console.log("Nothing to look up — every track already has an artist.");
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!todo.size && !needLength.length) {
+    console.log("Nothing to look up — every track already has an artist and a length.");
     return;
   }
-  console.log(`Looking up ${todo.size} tracks with a placeholder artist...\n`);
 
   // Ask YouTube first. It answers by video ID rather than by title, so its answers need no
   // human confirmation — which is what lets this run unattended on someone else's history.
-  const key = process.env.YOUTUBE_API_KEY;
-  const authoritative = key ? await youtubeArtists([...todo.keys()], key) : new Map<string, string>();
-  if (!key) {
+  // One pass covers both questions: the tracks missing an artist are a subset of these.
+  let authoritative = new Map<string, string>();
+  if (key) {
+    console.log(`Asking YouTube about ${needLength.length} videos (${Math.ceil(needLength.length / 50)} requests)...`);
+    const got = await youtubeLookup(needLength, key);
+    authoritative = got.artists;
+    for (const [id, seconds] of got.durations) lengths[id] = seconds;
+    writeFileSync("durations.json", JSON.stringify(lengths, null, 2) + "\n");
+    console.log(`  ${got.durations.size} track lengths cached.\n`);
+  } else {
     console.log("  YOUTUBE_API_KEY is not set — using catalogue search only, which needs review.\n");
   }
+
+  if (!todo.size) {
+    console.log("Every track already has an artist.");
+    return;
+  }
+  console.log(`Resolving ${todo.size} tracks with a placeholder artist...\n`);
 
   const rows: string[] = [];
   let fromYouTube = 0;
@@ -278,6 +311,12 @@ function selftest() {
   );
   assert.equal(parseArtTrack("just a normal youtube description\nwith no credits"), null, "an ordinary upload has no credits to read");
   assert.equal(parseArtTrack(""), null, "an empty description resolves to nothing");
+
+  assert.equal(parseDuration("PT3M22S"), 202, "minutes and seconds");
+  assert.equal(parseDuration("PT1H2M3S"), 3723, "hours on a long upload");
+  assert.equal(parseDuration("PT45S"), 45, "seconds only");
+  assert.equal(parseDuration("PT0S"), null, "a zero length is no length at all");
+  assert.equal(parseDuration("nonsense"), null, "unparseable input yields nothing");
   console.log("selftest ok");
 }
 

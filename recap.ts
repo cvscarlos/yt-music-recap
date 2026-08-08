@@ -23,6 +23,7 @@ type Track = {
   artist: string;
   plays: number;
   lastPlayedAt: string;
+  minutes?: number; // time spent on this track, once enrich.ts has fetched its length
 };
 
 // Named periods as [first month, length in months]. Seasons are meteorological,
@@ -154,8 +155,9 @@ function toMarkdown(r: ReturnType<typeof rank>): string {
   const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
   const rows = r.tracks.map(
     (t, i) =>
-      `| ${i + 1} | ${t.title} | ${t.artist} | ${t.plays} | ${t.lastPlayedAt.slice(0, 10)} | https://music.youtube.com/watch?v=${t.videoId} |`,
+      `| ${i + 1} | ${t.title} | ${t.artist} | ${t.plays} | ${t.minutes ?? "—"} | ${t.lastPlayedAt.slice(0, 10)} | https://music.youtube.com/watch?v=${t.videoId} |`,
   );
+  const totalMinutes = r.tracks.reduce((sum, t) => sum + (t.minutes ?? 0), 0);
   return [
     `# ${r.label} Recap — top ${r.tracks.length}`,
     ``,
@@ -167,8 +169,10 @@ function toMarkdown(r: ReturnType<typeof rank>): string {
       ? [``, `> **Partial period — ${r.coverage.pct}% covered by this export** (${r.coverage.gaps.join(", ")}). Ranking is incomplete.`]
       : []),
     ``,
-    `| # | Track | Artist | Plays | Last played | Link |`,
-    `| --: | --- | --- | --: | --- | --- |`,
+    ...(totalMinutes ? [``, `These ${r.tracks.length} tracks alone account for ${Math.round(totalMinutes / 60)} hours of listening.`] : []),
+    ``,
+    `| # | Track | Artist | Plays | Minutes | Last played | Link |`,
+    `| --: | --- | --- | --: | --: | --- | --- |`,
     ...rows,
     ``,
   ].join("\n");
@@ -258,6 +262,13 @@ if (args.includes("--selftest")) {
     for (const t of result.tracks) t.artist = artists[t.videoId] ?? t.artist;
   }
 
+  // Track lengths are optional; without them the ranking is unchanged and the minutes
+  // column simply stays empty.
+  if (existsSync("durations.json")) {
+    const lengths: Record<string, number> = JSON.parse(readFileSync("durations.json", "utf8"));
+    for (const t of result.tracks) if (lengths[t.videoId]) t.minutes = Math.round((lengths[t.videoId] * t.plays) / 60);
+  }
+
   if (!result.listens) {
     console.error(`No YouTube Music listens found in ${period}.`);
     console.error(`File has ${activities.length} activities; ${activities.filter((a) => a.header === "YouTube Music").length} are YouTube Music.`);
@@ -271,9 +282,27 @@ if (args.includes("--selftest")) {
   // Opening this URL while signed in builds a throwaway playlist you can then save, which
   // skips OAuth and the API quota entirely. Undocumented and capped at 50 videos, so it
   // is a convenience, not the export path — if it stops working, use the Data API.
-  const url = `https://www.youtube.com/watch_videos?video_ids=${result.tracks.slice(0, 50).map((t) => t.videoId).join(",")}`;
-  writeFileSync(`out/${result.label}${suffix}.url.txt`, url + "\n");
+  //
+  // Written as HTML rather than a bare URL so it can simply be opened: a 600-character
+  // link is not something anyone should have to copy out of a text file by hand.
+  const shown = result.tracks.slice(0, 50);
+  const url = `https://www.youtube.com/watch_videos?video_ids=${shown.map((t) => t.videoId).join(",")}`;
+  writeFileSync(
+    `out/${result.label}${suffix}.playlist.html`,
+    [
+      `<meta charset="utf-8"><title>${result.label} playlist</title>`,
+      `<body style="font:16px/1.6 system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem">`,
+      `<h1>${result.label} — top ${shown.length}</h1>`,
+      `<p>Open the link below while signed in to YouTube. It builds a temporary playlist you can then save.</p>`,
+      `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
+      result.tracks.length > 50
+        ? `<p><em>Your recap has ${result.tracks.length} tracks, but this link carries at most 50 — the rest need the API export.</em></p>`
+        : ``,
+      `<ol>${shown.map((t) => `<li>${t.title} — ${t.artist}</li>`).join("")}</ol>`,
+      `</body>`,
+    ].join("\n"),
+  );
 
   console.log(toMarkdown(result));
-  console.error(`\nWrote out/${result.label}${suffix}.{md,json,url.txt}`);
+  console.error(`\nWrote out/${result.label}${suffix}.{md,json,playlist.html}`);
 }

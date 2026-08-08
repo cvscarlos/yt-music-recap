@@ -44,7 +44,7 @@ Each run writes three files to `out/`:
 
 - `<period>.md` — the ranked list, readable
 - `<period>.json` — the same data with video IDs, for building the playlist
-- `<period>.url.txt` — see [Turning it into a playlist](#turning-it-into-a-playlist)
+- `<period>.playlist.html` — see [Turning it into a playlist](#turning-it-into-a-playlist)
 
 ## 3. Fill in missing artists (optional)
 
@@ -58,6 +58,8 @@ node enrich.ts
 It asks YouTube first. Tracks generated for a label state their credits in the video description, keyed to the video ID, so the answer is exact and needs no checking. Anything without such credits falls back to searching Deezer and iTunes by title, and a name is only accepted when both independently return the same one.
 
 Tracks that no catalogue carries — mashups, meme edits, personal uploads — are recorded as YouTube-only. That is a real answer, not a failure, and it stops them being looked up again.
+
+The same request also returns each track's length, cached in `durations.json`, which is what lets a recap report listening time rather than only play counts.
 
 Results go to `artists.json`, which `recap.ts` applies on the next run. Re-run the recap afterwards to see them.
 
@@ -75,7 +77,7 @@ There is no consent screen, no app verification and no OAuth flow. One request c
 
 ## Turning it into a playlist
 
-Every run writes `out/<period>.url.txt`. Open that URL while signed in and YouTube builds a temporary playlist you can save. No API key, no OAuth, no quota.
+Every run writes `out/<period>.playlist.html`. Open that file and follow the link while signed in, and YouTube builds a temporary playlist you can save. No API key, no OAuth, no quota.
 
 It is capped at **50 videos** and relies on an undocumented URL, so treat it as a convenience. Creating a longer playlist properly needs OAuth and the YouTube Data API, where each added track costs 50 quota units — a 100-track playlist is about half a day's allowance.
 

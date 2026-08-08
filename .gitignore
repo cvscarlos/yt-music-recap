@@ -10,3 +10,5 @@ artists.json
 Thumbs.db
 Desktop.ini
 .env
+# cached track lengths from the YouTube API
+durations.json
