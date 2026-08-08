@@ -1,5 +1,15 @@
 {
   "name": "yt-music-recap",
   "type": "module",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node recap.ts --selftest && node enrich.ts --selftest",
+    "check": "npm run typecheck && npm run test",
+    "prepare": "git config core.hooksPath .githooks"
+  }
 }
