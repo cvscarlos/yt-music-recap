@@ -11,6 +11,13 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
 
+// Node reads .env itself, so no dotenv dependency. Throws when the file is absent, which
+// is fine — the key can equally come from the environment, and without one this falls
+// back to catalogue search.
+try {
+  process.loadEnvFile();
+} catch {}
+
 // Channel names YouTube substitutes when a track has no artist of its own. Anything else
 // came from a real "- Topic" channel and is left alone: correcting a name Takeout already
 // gave us risks replacing a right answer with a famous same-named artist.

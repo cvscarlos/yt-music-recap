@@ -6,3 +6,7 @@ watch-history.json
 
 # curated artist fixes derived from listening history
 artists.json
+
+Thumbs.db
+Desktop.ini
+.env
