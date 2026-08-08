@@ -71,7 +71,13 @@ function videoIdOf(url: string | undefined): string | null {
 // A track abandoned inside a minute was skipped, not listened to, so it earns no play.
 export const DEFAULT_MIN_SECONDS = 60;
 
-export function rank(activities: Activity[], period: string, limit: number, minSeconds = DEFAULT_MIN_SECONDS) {
+export function rank(
+  activities: Activity[],
+  period: string,
+  limit: number,
+  minSeconds = DEFAULT_MIN_SECONDS,
+  recordings: Record<string, string> = {},
+) {
   const { start, end, label } = parsePeriod(period);
   const seen = new Set<string>(); // same video at the same instant = duplicate export
   const byVideo = new Map<string, Track>();
@@ -116,13 +122,17 @@ export function rank(activities: Activity[], period: string, limit: number, minS
     }
     listens++;
 
-    const existing = byVideo.get(videoId!);
+    // Several uploads can hold the same recording, and playing each of them is still
+    // playing that one recording. Videos whose recording is unknown stay on their own.
+    const key = recordings[videoId!] ?? videoId!;
+
+    const existing = byVideo.get(key);
     if (existing) {
       existing.plays++;
       if (a.time! > existing.lastPlayedAt) existing.lastPlayedAt = a.time!;
       continue;
     }
-    byVideo.set(videoId!, {
+    byVideo.set(key, {
       videoId: videoId!,
       // "Watched " is English-only; other locales keep their own prefix in the title.
       title: (a.title ?? "").replace(/^Watched\s+/, ""),
@@ -132,9 +142,6 @@ export function rank(activities: Activity[], period: string, limit: number, minS
     });
   }
 
-  // ponytail: ranked per video ID rather than per song, so one song uploaded under
-  // several IDs ranks several times. That only matters for per-song statistics; a
-  // playlist needs video IDs anyway. Merge if the top N ever shows visible duplicates.
   const tracks = [...byVideo.values()]
     .sort((a, b) => b.plays - a.plays || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
     .slice(0, limit);
@@ -235,6 +242,26 @@ function selftest() {
   assert.equal(rank(skips, "summer-2023", 100, 30).skipped, 1, "a 30s threshold keeps the 45s listen");
   assert.equal(rank(skips, "summer-2023", 100, 0).listens, 4, "zero counts every event");
 
+  // Two uploads of one recording count as one track; the live take is a different
+  // recording and keeps its own entry, without anything having to recognise the word.
+  const versions: Activity[] = [
+    listen("2023-07-01T10:00:00Z", "studioA", "Papercut", "Linkin Park"),
+    listen("2023-07-02T10:00:00Z", "studioB", "Papercut", "Linkin Park"),
+    listen("2023-07-03T10:00:00Z", "liveA", "Papercut", "Linkin Park"),
+  ];
+  const same = "papercut · linkin park · hybrid theory";
+  const merged = rank(versions, "summer-2023", 100, 0, {
+    studioA: same,
+    studioB: same,
+    liveA: "papercut · linkin park · live in texas",
+  });
+  assert.deepEqual(
+    merged.tracks.map((t) => t.plays),
+    [2, 1],
+    "the two studio uploads merge, the live take stays separate",
+  );
+  assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without recording data every video stands alone");
+
   console.log("selftest ok");
 }
 
@@ -257,7 +284,10 @@ if (args.includes("--selftest")) {
   const activities: Activity[] = file
     .split(",")
     .flatMap((f) => JSON.parse(readFileSync(f.trim(), "utf8")) as Activity[]);
-  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds);
+  const recordings: Record<string, string> = existsSync("recordings.json")
+    ? JSON.parse(readFileSync("recordings.json", "utf8"))
+    : {};
+  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
 
   // Artists resolved by enrich.ts, or corrected by hand afterwards. Only tracks whose

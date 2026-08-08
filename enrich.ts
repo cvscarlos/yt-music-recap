@@ -34,6 +34,20 @@ export const normalize = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+// Identifies a recording so that the same one, uploaded twice, matches. Deliberately
+// gentler than normalize(): punctuation differs between uploads of one release — "(Re)nascido"
+// against "[Re]nascido" — but bracketed words must survive, since "(Bass Boosted)" is what
+// separates an edit from the original.
+export const recordingKey = (title: string, artist: string, album: string) =>
+  [title, artist, album]
+    .join(" · ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9·]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 function editDistance(a: string, b: string): number {
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
@@ -73,14 +87,20 @@ type Candidate = { artist: string; title: string } | null;
 //
 // The artist is stated for this exact video, so no title guessing is involved and a band
 // cannot lose its song to a famous act with the same name. Everything else is a fallback.
-export function parseArtTrack(description: string): string | null {
+export function parseArtTrack(description: string): { title: string; artist: string; album: string } | null {
+  // Nothing here keys off an English phrase. "Provided to YouTube by" and "Auto-generated
+  // by YouTube" are both translated, so this anchors on the two things that are not: the
+  // ℗ phonogram symbol every such description carries, and the "·" separating credits.
+  if (!description.includes("℗")) return null;
   const lines = description.split("\n").map((l) => l.trim());
-  const header = lines.findIndex((l) => l.startsWith("Provided to YouTube by"));
-  if (header === -1) return null;
-  const credits = lines.slice(header + 1).find((l) => l.includes(" · "));
-  if (!credits) return null;
-  const artists = credits.split(" · ").slice(1); // first field is the song title
-  return artists.length ? artists.join(", ") : null;
+  const at = lines.findIndex((l) => /^[^·]+ · [^·]/.test(l));
+  if (at === -1) return null;
+
+  const [title, ...artists] = lines[at].split(" · ");
+  if (!artists.length) return null;
+  // The album is the next non-empty line, unless the credits are the last thing stated.
+  const album = lines.slice(at + 1).find((l) => l && !l.startsWith("℗")) ?? "";
+  return { title, artist: artists.join(", "), album };
 }
 
 // "PT3M22S" -> 202. Hours appear on long uploads, and a bare "PT0S" on live streams.
@@ -96,6 +116,7 @@ export function parseDuration(iso: string): number | null {
 async function youtubeLookup(ids: string[], key: string) {
   const artists = new Map<string, string>();
   const durations = new Map<string, number>();
+  const recordings = new Map<string, string>();
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50);
     const r = await fetch(
@@ -107,13 +128,18 @@ async function youtubeLookup(ids: string[], key: string) {
     }
     // Private uploads and deleted videos are simply absent from the response.
     for (const item of ((await r.json()) as any).items ?? []) {
-      const artist = parseArtTrack(item.snippet?.description ?? "");
-      if (artist) artists.set(item.id, artist);
+      const credits = parseArtTrack(item.snippet?.description ?? "");
+      if (credits) {
+        artists.set(item.id, credits.artist);
+        // Identifies the recording, not the song: a live take carries a different album,
+        // so it stays separate without any need to recognise the word for "live".
+        recordings.set(item.id, recordingKey(credits.title, credits.artist, credits.album));
+      }
       const seconds = parseDuration(item.contentDetails?.duration ?? "");
       if (seconds) durations.set(item.id, seconds);
     }
   }
-  return { artists, durations };
+  return { artists, durations, recordings };
 }
 
 // YouTube titles often carry the artist as well ("Celldweller feat. X - Shapeshifter"), so
@@ -178,6 +204,12 @@ async function main() {
     ? JSON.parse(readFileSync("durations.json", "utf8"))
     : {};
 
+  // Which recording each video holds, so repeated uploads of one recording can be counted
+  // together while genuinely different takes stay apart.
+  const recordings: Record<string, string> = existsSync("recordings.json")
+    ? JSON.parse(readFileSync("recordings.json", "utf8"))
+    : {};
+
   const todo = new Map<string, string>();
   const needLength: string[] = [];
   for (const f of readdirSync("out").filter((x) => x.endsWith(".json"))) {
@@ -202,8 +234,10 @@ async function main() {
     const got = await youtubeLookup(needLength, key);
     authoritative = got.artists;
     for (const [id, seconds] of got.durations) lengths[id] = seconds;
+    for (const [id, recording] of got.recordings) recordings[id] = recording;
     writeFileSync("durations.json", JSON.stringify(lengths, null, 2) + "\n");
-    console.log(`  ${got.durations.size} track lengths cached.\n`);
+    writeFileSync("recordings.json", JSON.stringify(recordings, null, 2) + "\n");
+    console.log(`  ${got.durations.size} track lengths and ${got.recordings.size} recordings cached.\n`);
   } else {
     console.log("  YOUTUBE_API_KEY is not set — using catalogue search only, which needs review.\n");
   }
@@ -299,18 +333,40 @@ function selftest() {
   assert.ok(plausibleArtist("Bodies", "Bodies", "Drowning Pool"), "an unshortened query needs no corroboration");
 
   // Real description text, as returned for these video IDs.
-  assert.equal(
-    parseArtTrack("Provided to YouTube by Universal Music Group\n\nVai Pagar Caro Por Me Conhecer · Gloria\n\nGloria\n\n℗ 2009 Universal Music Ltda"),
-    "Gloria",
-    "reads the artist the label stated for this video",
+  assert.deepEqual(
+    parseArtTrack("Provided to YouTube by Universal Music Group\n\nBodies · Drowning Pool\n\nSinner\n\n℗ 2001 Craft Recordings\n\nReleased on: 2001-01-01"),
+    { title: "Bodies", artist: "Drowning Pool", album: "Sinner" },
+    "reads what the label stated for this video",
   );
   assert.equal(
-    parseArtTrack("Provided to YouTube by Lujo Network\n\nTrava na Pose (feat. Mc Rennan) · DJ Patrick Muniz · Dj Olliver · Mc Topre\n\nTrava na Pose"),
+    parseArtTrack("Provided to YouTube by Lujo Network\n\nTrava na Pose (feat. Mc Rennan) · DJ Patrick Muniz · Dj Olliver · Mc Topre\n\nTrava na Pose\n\n℗ Lujo")?.artist,
     "DJ Patrick Muniz, Dj Olliver, Mc Topre",
     "keeps every credited artist",
   );
-  assert.equal(parseArtTrack("just a normal youtube description\nwith no credits"), null, "an ordinary upload has no credits to read");
+  // The surrounding prose is translated for non-English accounts; the ℗ and the · are not.
+  assert.equal(
+    parseArtTrack("Bereitgestellt von Universal Music Group\n\nSonne · Rammstein\n\nMutter\n\n℗ 2001 Universal")?.album,
+    "Mutter",
+    "does not depend on the description being English",
+  );
+  assert.equal(parseArtTrack("a normal upload · with a stray dot but no phonogram mark"), null, "an ordinary description is not mistaken for credits");
   assert.equal(parseArtTrack(""), null, "an empty description resolves to nothing");
+
+  assert.equal(
+    recordingKey("Só Eu Sei?", "Gloria", "[Re]nascido"),
+    recordingKey("Só Eu Sei", "Gloria", "(Re)nascido"),
+    "one release punctuated two ways is one recording",
+  );
+  assert.notEqual(
+    recordingKey("Vois Sur Ton Chemin (Bass Boosted)", "deprezz", "Vois Sur Ton Chemin (Bass Boosted)"),
+    recordingKey("Vois Sur Ton Chemin", "deprezz", "Vois Sur Ton Chemin"),
+    "an edit keeps the words that make it one",
+  );
+  assert.notEqual(
+    recordingKey("Papercut", "Linkin Park", "Live In Texas"),
+    recordingKey("Papercut", "Linkin Park", "Hybrid Theory"),
+    "a live take is a different recording, recognised by its album rather than its wording",
+  );
 
   assert.equal(parseDuration("PT3M22S"), 202, "minutes and seconds");
   assert.equal(parseDuration("PT1H2M3S"), 3723, "hours on a long upload");

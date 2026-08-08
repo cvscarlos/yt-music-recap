@@ -12,3 +12,6 @@ Desktop.ini
 .env
 # cached track lengths from the YouTube API
 durations.json
+
+# cached recording identities from the YouTube API
+recordings.json
