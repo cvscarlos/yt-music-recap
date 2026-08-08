@@ -184,9 +184,11 @@ export function rank(
 
 function toMarkdown(r: ReturnType<typeof rank>): string {
   const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  // Merged songs say so, because a merge is a judgement that can be wrong: seeing a count
+  // came from several videos is what lets an implausible one be spotted.
   const rows = r.tracks.map(
     (t, i) =>
-      `| ${i + 1} | ${t.title} | ${t.artist} | ${t.plays} | ${t.minutes ?? "—"} | ${t.lastPlayedAt.slice(0, 10)} | https://music.youtube.com/watch?v=${t.videoId} |`,
+      `| ${i + 1} | ${t.title}${t.versions ? ` *(${t.versions} versions)*` : ""} | ${t.artist} | ${t.plays} | ${t.minutes ?? "—"} | ${t.lastPlayedAt.slice(0, 10)} | https://music.youtube.com/watch?v=${t.videoId} |`,
   );
   const totalMinutes = r.tracks.reduce((sum, t) => sum + (t.minutes ?? 0), 0);
   return [
