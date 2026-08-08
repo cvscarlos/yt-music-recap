@@ -248,9 +248,15 @@ if (args.includes("--selftest")) {
   console.error(`usage: node recap.ts <watch-history.json> <period> [limit] [--min-seconds=N]  (default ${DEFAULT_MIN_SECONDS}, 0 counts every event)`);
   process.exit(1);
 } else {
-  // ponytail: parses the whole file into memory. Node handles a few hundred MB fine;
-  // switch to a streaming JSON parser only if a real export actually blows up.
-  const activities: Activity[] = JSON.parse(readFileSync(file, "utf8"));
+  // Exports are capped, so a longer history means several overlapping ones. Listing them
+  // comma-separated merges them: duplicate records are already dropped by video ID and
+  // timestamp, which is exactly what overlapping exports collide on.
+  //
+  // ponytail: parses them all into memory. Node handles a few hundred MB fine; switch to
+  // a streaming parser only if a real export actually blows up.
+  const activities: Activity[] = file
+    .split(",")
+    .flatMap((f) => JSON.parse(readFileSync(f.trim(), "utf8")) as Activity[]);
   const result = rank(activities, period, Number(limitArg ?? 100), minSeconds);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
 

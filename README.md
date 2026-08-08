@@ -32,6 +32,12 @@ node recap.ts watch-history.json summer-2023
 
 Arguments are the history file, the period, and optionally how many tracks (default 100).
 
+Exports are capped, so a history reaching further back means several of them. List them comma-separated and they merge — records duplicated between overlapping exports are dropped, so the same file listed twice changes nothing:
+
+```bash
+node recap.ts watch-history-2024.json,watch-history-2026.json 2025
+```
+
 | Period | Meaning |
 | --- | --- |
 | `2025` | calendar year |
