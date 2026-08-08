@@ -385,8 +385,14 @@ if (import.meta.filename !== process.argv[1]) {
       `<meta charset="utf-8"><title>${result.label} playlist</title>`,
       `<body style="font:16px/1.6 system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem">`,
       `<h1>${result.label} — top ${shown.length}</h1>`,
-      `<p>Open the link below while signed in to YouTube. It builds a temporary playlist you can then save.</p>`,
+      `<p>Open the link below while signed in to YouTube.</p>`,
       `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
+      // The list YouTube builds is temporary and belongs to nobody, so saving it bookmarks
+      // something that can later disappear. Copying the tracks makes a playlist of your own.
+      `<p>That gives you a temporary list called <em>Untitled List</em>. To keep it:</p>`,
+      `<ol><li>Click the list title to open its playlist page.</li>`,
+      `<li>Select the tracks and choose <strong>Add to playlist &rarr; New playlist</strong>.</li></ol>`,
+      `<p><small>Saving the temporary list instead only bookmarks it, and YouTube discards those eventually.</small></p>`,
       result.tracks.length > 50
         ? `<p><em>Your recap has ${result.tracks.length} tracks, but this link carries at most 50 — the rest need the API export.</em></p>`
         : ``,
