@@ -217,8 +217,14 @@ async function itunes(title: string): Promise<Candidate> {
 const loadCache = <T,>(file: string): Record<string, T> =>
   existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
 
-// What the recaps still need answered. Reading the recaps rather than the history means
-// only tracks that already charted are looked up.
+// What the recaps still need answered.
+//
+// Reading the recaps rather than the history means only tracks that already charted are
+// looked up, which bounds the work to a few hundred videos. The cost is that a song split
+// across two videos which both fall below the cut-off stays split: neither is looked up,
+// so nothing learns they are one song, and their combined plays never lift it into the
+// list. Passing the history here instead would fix that, for roughly one request per fifty
+// videos in it.
 function collectWork(
   store: Record<string, string | null>,
   lengths: Record<string, number>,

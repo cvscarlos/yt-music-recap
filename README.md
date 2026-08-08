@@ -29,15 +29,15 @@ Every track keeps its video ID, so the list turns straight into a real playlist.
 
 ## What makes the numbers right
 
-**Skips don't count as plays.** A track you abandoned after eight seconds isn't a track you listened to. Anything dropped inside a minute is excluded, which on a real year removed 2,554 phantom plays.
+**Skips don't count as plays.** A track you abandoned after eight seconds isn't a track you listened to.
 
-**Every version of a song counts as that song.** The studio take, the live take and the reissue are one entry, credited to whichever version you actually played. One song split across two uploads had been sitting at 30 plays and 16 instead of 46 — enough to cost it the top spot for the year.
+**Every version of a song counts as that song.** The studio take, the live take and the reissue are one entry, credited to whichever version you actually played — not three rivals splitting the votes.
 
-**Artists are the real ones.** YouTube labels plenty of tracks `Release` or leaves them blank. Those get resolved from the label's own credits for that exact video, not guessed from the title — so a small band never loses its songs to a famous act with the same name.
+**Artists are the real ones.** Where YouTube says `Release`, or nothing at all, you get the name the label credited. A small band never loses its songs to a famous act with the same name.
 
-**Nothing is invented.** Ranking is play count, highest first. Weighted scoring was built, measured against real listening history, and thrown away: it changed nothing that mattered and made the result harder to trust.
+**Nothing is invented.** Your top track is the one you played most. No weighting, no taste model, no opinion about what you *really* liked.
 
-**It doesn't assume your language.** Nothing keys off English or any other language — not the way skips are found, not the way versions are matched, not the way artists are read.
+**Any language.** Portuguese, German, Japanese — the ranking doesn't care.
 
 ## Get your recap
 
@@ -77,7 +77,7 @@ Open `out/2025.playlist.html` and follow the link while signed in to YouTube. It
 
 No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
 
-Music is licensed country by country, and YouTube quietly hides whatever isn't licensed where you are — so a playlist can arrive missing a dozen songs with no explanation. Once you've run the artist lookup below, those tracks are left out of the link and their places filled from further down your ranking, so you get fifty that actually play. Set `RECAP_REGION` in `.env` to the country you watch from; guessing it from your system language gets it wrong if you run an English system elsewhere.
+Music is licensed country by country, and YouTube hides whatever isn't licensed where you are — a playlist can arrive quietly missing a dozen songs. Set `RECAP_REGION` in `.env` to the country you watch from and those are swapped out for the next tracks down, so you get fifty that play.
 
 ## Better artists, and listening time
 
@@ -107,10 +107,8 @@ Your history, your recaps and everything derived from them are kept out of git a
 
 ## Good to know
 
-**Exports are often shorter than you expect.** Row caps and history auto-delete both bite, and one real export turned out to hold exactly two years. Every recap tells you how much of its period it actually covers, so a year built from five months says so rather than quietly ranking a fraction of itself.
+**Exports are often shorter than you expect.** Google caps them, and old history gets deleted. Every recap tells you how much of its period it actually covers, so a year built from five months says so instead of pretending.
 
 **Only YouTube Music counts.** Music videos watched on youtube.com proper are left out, which is what Recap did too.
 
 **Some tracks exist only on YouTube.** Mashups, meme edits and your own uploads aren't in any music catalogue. They're kept, with whatever name YouTube gave them.
-
-**Versions are counted together only once one of them charts.** Artists and lengths are fetched for the tracks a recap already lists, so a song split across two videos that both fall below the cut-off stays split, and their combined plays won't lift it into the list.
