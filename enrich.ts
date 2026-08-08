@@ -34,19 +34,29 @@ export const normalize = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-// Identifies a recording so that the same one, uploaded twice, matches. Deliberately
-// gentler than normalize(): punctuation differs between uploads of one release — "(Re)nascido"
-// against "[Re]nascido" — but bracketed words must survive, since "(Bass Boosted)" is what
-// separates an edit from the original.
-export const recordingKey = (title: string, artist: string, album: string) =>
-  [title, artist, album]
-    .join(" · ")
+// Identifies a song, so its studio take, its live take and a reissue on a compilation all
+// answer to one name. Version qualifiers live in brackets — "(Live In Texas)", "(Ao Vivo)",
+// "(Bass Boosted)" — so removing every bracket separates the song from the version of it
+// without knowing any of those words, in any language. The album is deliberately not part
+// of this: differing on it is precisely how a live take used to escape.
+// Strips punctuation and accents while keeping letters and digits of every script: a
+// Latin-only filter would erase a Japanese or Cyrillic title entirely and collapse every
+// such song onto one key.
+const foldText = (s: string) =>
+  s
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9·]+/g, " ")
+    .replace(/\p{M}+/gu, "")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+export const songKey = (title: string, artist: string) => {
+  const song = foldText(title.replace(/[(\[][^)\]]*[)\]]/g, " "));
+  // A title made only of punctuation leaves nothing to match on, and treating that as a
+  // key would merge every such video together.
+  return song ? `${song} · ${foldText(artist)}` : "";
+};
 
 function editDistance(a: string, b: string): number {
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -131,9 +141,8 @@ async function youtubeLookup(ids: string[], key: string) {
       const credits = parseArtTrack(item.snippet?.description ?? "");
       if (credits) {
         artists.set(item.id, credits.artist);
-        // Identifies the recording, not the song: a live take carries a different album,
-        // so it stays separate without any need to recognise the word for "live".
-        recordings.set(item.id, recordingKey(credits.title, credits.artist, credits.album));
+        const key = songKey(credits.title, credits.artist);
+        if (key) recordings.set(item.id, key);
       }
       const seconds = parseDuration(item.contentDetails?.duration ?? "");
       if (seconds) durations.set(item.id, seconds);
@@ -352,21 +361,21 @@ function selftest() {
   assert.equal(parseArtTrack("a normal upload · with a stray dot but no phonogram mark"), null, "an ordinary description is not mistaken for credits");
   assert.equal(parseArtTrack(""), null, "an empty description resolves to nothing");
 
-  assert.equal(
-    recordingKey("Só Eu Sei?", "Gloria", "[Re]nascido"),
-    recordingKey("Só Eu Sei", "Gloria", "(Re)nascido"),
-    "one release punctuated two ways is one recording",
-  );
-  assert.notEqual(
-    recordingKey("Vois Sur Ton Chemin (Bass Boosted)", "deprezz", "Vois Sur Ton Chemin (Bass Boosted)"),
-    recordingKey("Vois Sur Ton Chemin", "deprezz", "Vois Sur Ton Chemin"),
-    "an edit keeps the words that make it one",
-  );
-  assert.notEqual(
-    recordingKey("Papercut", "Linkin Park", "Live In Texas"),
-    recordingKey("Papercut", "Linkin Park", "Hybrid Theory"),
-    "a live take is a different recording, recognised by its album rather than its wording",
-  );
+  assert.equal(songKey("Só Eu Sei?", "Gloria"), songKey("Só Eu Sei", "Gloria"), "punctuation does not make a second song");
+  assert.equal(songKey("Papercut (Live In Texas)", "Linkin Park"), songKey("Papercut", "Linkin Park"), "a live take is the same song");
+  // The same holds in any language, because no language is consulted.
+  assert.equal(songKey("Anjo Bom (Ao Vivo)", "Amado Batista"), songKey("Anjo Bom", "Amado Batista"), "Portuguese");
+  assert.equal(songKey("Sonne (Live aus Berlin)", "Rammstein"), songKey("Sonne", "Rammstein"), "German");
+  assert.equal(songKey("一輪の花 (ライブ)", "高橋洋子"), songKey("一輪の花", "高橋洋子"), "Japanese");
+
+  assert.notEqual(songKey("Papercut", "Linkin Park"), songKey("Papercut", "Anberlin"), "a different artist is a different song");
+  assert.notEqual(songKey("Numb", "Linkin Park"), songKey("Numb Encore", "Linkin Park"), "a different title is a different song");
+  // Non-Latin titles must survive folding. Stripping them would leave every such song
+  // sharing one empty key, quietly merging songs that have nothing to do with each other.
+  assert.notEqual(songKey("一輪の花", "高橋洋子"), songKey("残酷な天使のテーゼ", "高橋洋子"), "two Japanese titles stay distinct");
+  assert.notEqual(songKey("Зачем", "xolair"), songKey("Прощай", "xolair"), "two Cyrillic titles stay distinct");
+  assert.ok(songKey("一輪の花", "高橋洋子").startsWith("一輪の花"), "a Japanese title survives folding");
+  assert.equal(songKey("???", "Some Artist"), "", "a title with nothing to match on yields no key at all");
 
   assert.equal(parseDuration("PT3M22S"), 202, "minutes and seconds");
   assert.equal(parseDuration("PT1H2M3S"), 3723, "hours on a long upload");
@@ -376,5 +385,9 @@ function selftest() {
   console.log("selftest ok");
 }
 
-if (process.argv.includes("--selftest")) selftest();
-else await main();
+// Only act when run directly. Importing this module — a test, another script — must not
+// spend API quota as a side effect.
+if (import.meta.filename === process.argv[1]) {
+  if (process.argv.includes("--selftest")) selftest();
+  else await main();
+}

@@ -24,6 +24,15 @@ type Track = {
   plays: number;
   lastPlayedAt: string;
   minutes?: number; // time spent on this track, once enrich.ts has fetched its length
+  versions?: number; // how many videos of this song were counted together, when above one
+};
+
+// A song while it is being counted: total plays, plus each video it was played from, so
+// the most-played one can represent it afterwards.
+type Song = {
+  plays: number;
+  lastPlayedAt: string;
+  versions: Map<string, { plays: number; title: string; artist: string }>;
 };
 
 // Named periods as [first month, length in months]. Seasons are meteorological,
@@ -80,7 +89,7 @@ export function rank(
 ) {
   const { start, end, label } = parsePeriod(period);
   const seen = new Set<string>(); // same video at the same instant = duplicate export
-  const byVideo = new Map<string, Track>();
+  const byVideo = new Map<string, Song>();
   let listens = 0;
   let skipped = 0;
 
@@ -122,27 +131,42 @@ export function rank(
     }
     listens++;
 
-    // Several uploads can hold the same recording, and playing each of them is still
-    // playing that one recording. Videos whose recording is unknown stay on their own.
+    // Every version of a song answers to one key, so playing the studio take and the live
+    // take both count towards that song. Videos with no known song stay on their own.
     const key = recordings[videoId!] ?? videoId!;
 
-    const existing = byVideo.get(key);
-    if (existing) {
-      existing.plays++;
-      if (a.time! > existing.lastPlayedAt) existing.lastPlayedAt = a.time!;
-      continue;
+    let song = byVideo.get(key);
+    if (!song) {
+      song = { plays: 0, lastPlayedAt: "", versions: new Map() };
+      byVideo.set(key, song);
     }
-    byVideo.set(key, {
-      videoId: videoId!,
+    song.plays++;
+    if (a.time! > song.lastPlayedAt) song.lastPlayedAt = a.time!;
+
+    const version = song.versions.get(videoId!) ?? {
+      plays: 0,
       // "Watched " is English-only; other locales keep their own prefix in the title.
       title: (a.title ?? "").replace(/^Watched\s+/, ""),
       artist: (a.subtitles?.[0]?.name ?? "").replace(/\s+-\s+Topic$/, ""),
-      plays: 1,
-      lastPlayedAt: a.time!,
-    });
+    };
+    version.plays++;
+    song.versions.set(videoId!, version);
   }
 
-  const tracks = [...byVideo.values()]
+  // A song is represented by whichever of its versions was played most, so a playlist
+  // gets the studio take you actually listen to rather than the live one you tried once.
+  const tracks: Track[] = [...byVideo.values()]
+    .map((song) => {
+      const [videoId, top] = [...song.versions].sort((a, b) => b[1].plays - a[1].plays)[0];
+      return {
+        videoId,
+        title: top.title,
+        artist: top.artist,
+        plays: song.plays,
+        lastPlayedAt: song.lastPlayedAt,
+        ...(song.versions.size > 1 ? { versions: song.versions.size } : {}),
+      };
+    })
     .sort((a, b) => b.plays - a.plays || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
     .slice(0, limit);
 
@@ -242,25 +266,23 @@ function selftest() {
   assert.equal(rank(skips, "summer-2023", 100, 30).skipped, 1, "a 30s threshold keeps the 45s listen");
   assert.equal(rank(skips, "summer-2023", 100, 0).listens, 4, "zero counts every event");
 
-  // Two uploads of one recording count as one track; the live take is a different
-  // recording and keeps its own entry, without anything having to recognise the word.
+  // Every version of one song counts towards it, and the version played most represents
+  // it — so a playlist gets the studio take rather than the live one heard once.
+  const song = "papercut · linkin park"; // what songKey() yields for all three
   const versions: Activity[] = [
-    listen("2023-07-01T10:00:00Z", "studioA", "Papercut", "Linkin Park"),
-    listen("2023-07-02T10:00:00Z", "studioB", "Papercut", "Linkin Park"),
-    listen("2023-07-03T10:00:00Z", "liveA", "Papercut", "Linkin Park"),
+    listen("2023-07-01T10:00:00Z", "studio", "Papercut", "Linkin Park"),
+    listen("2023-07-02T10:00:00Z", "studio", "Papercut", "Linkin Park"),
+    listen("2023-07-03T10:00:00Z", "reissue", "Papercut", "Linkin Park"),
+    listen("2023-07-04T10:00:00Z", "live", "Papercut (Live In Texas)", "Linkin Park"),
   ];
-  const same = "papercut · linkin park · hybrid theory";
-  const merged = rank(versions, "summer-2023", 100, 0, {
-    studioA: same,
-    studioB: same,
-    liveA: "papercut · linkin park · live in texas",
-  });
-  assert.deepEqual(
-    merged.tracks.map((t) => t.plays),
-    [2, 1],
-    "the two studio uploads merge, the live take stays separate",
-  );
-  assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without recording data every video stands alone");
+  const merged = rank(versions, "summer-2023", 100, 0, { studio: song, reissue: song, live: song });
+  assert.equal(merged.tracks.length, 1, "studio, reissue and live take are all one song");
+  assert.equal(merged.tracks[0].plays, 4, "every version's plays count towards the song");
+  assert.equal(merged.tracks[0].versions, 3, "records how many videos were counted together");
+  assert.equal(merged.tracks[0].videoId, "studio", "the most-played version represents the song");
+  assert.equal(merged.tracks[0].title, "Papercut", "and so its title is the one shown");
+
+  assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without song data every video stands alone");
 
   console.log("selftest ok");
 }

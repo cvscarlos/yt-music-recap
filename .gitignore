@@ -1,17 +1,14 @@
-.DS_Store
-tmp/
+# directories
 out/
+tmp/
+
+# files — a secret, your listening history, or something derived from it
 *.zip
-watch-history.json
-
-# curated artist fixes derived from listening history
-artists.json
-
-Thumbs.db
-Desktop.ini
+.DS_Store
 .env
-# cached track lengths from the YouTube API
+Desktop.ini
+Thumbs.db
+artists.json
 durations.json
-
-# cached recording identities from the YouTube API
 recordings.json
+watch-history.json
