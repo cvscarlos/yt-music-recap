@@ -389,10 +389,14 @@ if (import.meta.filename !== process.argv[1]) {
       `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
       // The list YouTube builds is temporary and belongs to nobody, so saving it bookmarks
       // something that can later disappear. Copying the tracks makes a playlist of your own.
-      `<p>That gives you a temporary list called <em>Untitled List</em>. To keep it:</p>`,
-      `<ol><li>Click the list title to open its playlist page.</li>`,
-      `<li>Select the tracks and choose <strong>Add to playlist &rarr; New playlist</strong>.</li></ol>`,
-      `<p><small>Saving the temporary list instead only bookmarks it, and YouTube discards those eventually.</small></p>`,
+      // Reaching the page that can do that means editing the address: the player's own
+      // controls only collapse the panel.
+      `<p>That gives you a temporary <em>Untitled List</em>, which is not yet yours. To keep it:</p>`,
+      `<ol>`,
+      `<li>Look at the address bar. It now ends with <code>&amp;list=TLGG…</code> &mdash; copy that <code>TLGG…</code> value.</li>`,
+      `<li>Go to <code>https://www.youtube.com/playlist?list=</code> followed by it. That is the real playlist page.</li>`,
+      `<li>There, choose <strong>Save</strong>, or select the tracks and <strong>Add to playlist &rarr; New playlist</strong> to own a copy outright.</li>`,
+      `</ol>`,
       result.tracks.length > 50
         ? `<p><em>Your recap has ${result.tracks.length} tracks, but this link carries at most 50 — the rest need the API export.</em></p>`
         : ``,
