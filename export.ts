@@ -135,6 +135,32 @@ async function youtube(path: string, token: string, body: unknown, params: strin
   return json;
 }
 
+// Adding to a playlist fails occasionally with "The operation was aborted" or a 5xx, and
+// the track is fine — the request simply did not land. Retrying costs 50 quota units and
+// recovers it, where giving up loses a song from the year for no reason.
+//
+// Inserts are sent one at a time on purpose. Position follows call order, and this playlist
+// is a ranking, so sending them at once would shuffle it; concurrent writes to one playlist
+// are also what provokes these conflicts in the first place.
+async function insertWithRetry(playlistId: string, videoId: string, token: string, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await youtube(
+        "playlistItems",
+        token,
+        { snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } } },
+        "part=snippet",
+      );
+    } catch (e) {
+      // A rejected video will be rejected every time; only transient failures are worth
+      // another attempt.
+      const transient = /aborted|backend|internal|timeout|503|500/i.test((e as Error).message);
+      if (attempt >= attempts || !transient) throw e;
+      await new Promise((done) => setTimeout(done, 400 * attempt));
+    }
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const [period] = args.filter((a) => !a.startsWith("--"));
@@ -186,22 +212,22 @@ async function main() {
   );
 
   let added = 0;
+  const lost: string[] = [];
   for (const track of playable) {
     try {
-      await youtube(
-        "playlistItems",
-        token,
-        { snippet: { playlistId: playlist.id, resourceId: { kind: "youtube#video", videoId: track.videoId } } },
-        "part=snippet",
-      );
+      await insertWithRetry(playlist.id, track.videoId, token);
       added++;
       process.stdout.write(`\r  added ${added}/${playable.length}`);
     } catch (e) {
-      // One unavailable video should not abandon the other forty-nine.
-      console.error(`\n  skipped ${track.title} — ${(e as Error).message}`);
+      // One rejected video should not abandon the rest of the year.
+      lost.push(`${track.title} — ${(e as Error).message}`);
     }
   }
-  console.log(`\n\nDone: https://music.youtube.com/playlist?list=${playlist.id}`);
+  if (lost.length) {
+    console.error(`\n\n${lost.length} could not be added:`);
+    for (const l of lost) console.error(`  ${l}`);
+  }
+  console.log(`\n\n${added} of ${playable.length} added: https://music.youtube.com/playlist?list=${playlist.id}`);
 }
 
 function selftest() {
