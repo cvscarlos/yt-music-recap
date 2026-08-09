@@ -100,6 +100,7 @@ export function rank(
   minSeconds = DEFAULT_MIN_SECONDS,
   recordings: Record<string, string> = {},
   durations: Record<string, number> = {},
+  availability: Record<string, boolean> = {},
 ) {
   const { start, end, label } = parsePeriod(period);
   const seen = new Set<string>(); // same video at the same instant = duplicate export
@@ -167,11 +168,15 @@ export function rank(
     song.versions.set(videoId!, version);
   }
 
-  // A song is represented by whichever of its versions was played most, so a playlist
-  // gets the studio take you actually listen to rather than the live one you tried once.
+  // A song is represented by whichever of its versions was played most, so a playlist gets
+  // the studio take you actually listen to rather than the live one you tried once — but a
+  // version that will not play here is no use as a representative, and a song blocked in
+  // one recording is often available in another, so a playable one is preferred when the
+  // song has one at all.
   const tracks: Track[] = [...byVideo.values()]
     .map((song) => {
-      const [videoId, top] = [...song.versions].sort((a, b) => b[1].plays - a[1].plays)[0];
+      const ranked = [...song.versions].sort((a, b) => b[1].plays - a[1].plays);
+      const [videoId, top] = ranked.find(([id]) => availability[id] !== false) ?? ranked[0];
       // Each version is timed by its own length. A live take can run twice as long as the
       // studio one, so charging every play to the representative's length misreports the
       // time spent. Versions of unknown length simply contribute nothing.
@@ -341,7 +346,10 @@ if (import.meta.filename !== process.argv[1]) {
   const durations: Record<string, number> = existsSync("durations.json")
     ? JSON.parse(readFileSync("durations.json", "utf8"))
     : {};
-  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings, durations);
+  const availability: Record<string, boolean> = existsSync("availability.json")
+    ? (JSON.parse(readFileSync("availability.json", "utf8")).playable ?? {})
+    : {};
+  const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings, durations, availability);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
 
   // Artists resolved by enrich.ts, or corrected by hand afterwards. Only tracks whose
@@ -373,9 +381,7 @@ if (import.meta.filename !== process.argv[1]) {
   // Tracks licensed away from here are left out and their places filled from further down
   // the ranking. Including them costs a slot each and YouTube silently hides them, so the
   // playlist arrives shorter than asked for with no explanation of why.
-  const availability: Record<string, boolean> = existsSync("availability.json")
-    ? (JSON.parse(readFileSync("availability.json", "utf8")).playable ?? {})
-    : {};
+  // (availability is loaded above for rank())
   const unplayable = result.tracks.filter((t) => availability[t.videoId] === false).length;
   const shown = result.tracks.filter((t) => availability[t.videoId] !== false).slice(0, 50);
   const url = `https://www.youtube.com/watch_videos?video_ids=${shown.map((t) => t.videoId).join(",")}`;

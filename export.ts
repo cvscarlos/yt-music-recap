@@ -144,7 +144,7 @@ async function main() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!period || !clientId || !clientSecret) {
-    console.error("usage: node export.ts <period> [--title=\"...\"] [--public]");
+    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only]");
     console.error("needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env — see .env.sample");
     process.exit(1);
   }
@@ -156,16 +156,25 @@ async function main() {
   }
   const tracks: { videoId: string; title: string; artist: string }[] = JSON.parse(readFileSync(file, "utf8"));
 
-  // Adding a track YouTube will not play there wastes both a slot and 50 units of quota.
+  // Tracks not licensed here are added anyway. They are part of the year, licensing changes
+  // and a hidden entry becomes visible when it does, and dropping them would silently make
+  // a "top 100" shorter than it claims. YouTube hides them meanwhile; --playable-only
+  // leaves them out for a playlist meant to be listened to straight through.
   const availability: Record<string, boolean> = existsSync("availability.json")
     ? (JSON.parse(readFileSync("availability.json", "utf8")).playable ?? {})
     : {};
-  const playable = tracks.filter((t) => availability[t.videoId] !== false);
-  const skipped = tracks.length - playable.length;
+  const blocked = tracks.filter((t) => availability[t.videoId] === false).length;
+  const playable = args.includes("--playable-only") ? tracks.filter((t) => availability[t.videoId] !== false) : tracks;
+  const hidden = args.includes("--playable-only") ? 0 : blocked;
 
   // Creating costs 50 units and each track another 50, against 10,000 a day.
   const cost = 50 + playable.length * 50;
-  console.log(`Creating "${title}" (${privacy}) with ${playable.length} tracks${skipped ? `, skipping ${skipped} unplayable` : ""}.`);
+  console.log(
+    `Creating "${title}" (${privacy}) with ${playable.length} tracks` +
+      (hidden ? `, ${hidden} of which YouTube will hide until they are licensed in your region` : "") +
+      (args.includes("--playable-only") && blocked ? `, leaving out ${blocked} unplayable` : "") +
+      ".",
+  );
   console.log(`Costs about ${cost.toLocaleString()} of the 10,000 daily quota units.\n`);
 
   const token = await accessToken(clientId, clientSecret);
