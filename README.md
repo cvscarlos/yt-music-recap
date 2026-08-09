@@ -41,7 +41,15 @@ Every track keeps its video ID, so the list turns straight into a real playlist.
 
 ## Get your recap
 
-**1. Export your history.** At [Google Takeout](https://takeout.google.com): *Deselect all* → **YouTube and YouTube Music** → under *All YouTube data included* keep only **history** → under *Multiple formats* set history to **JSON**. Export, then unzip what arrives. You want `watch-history.json`.
+**1. Export your history** at [Google Takeout](https://takeout.google.com):
+
+- Click **Deselect all**
+- Tick **YouTube and YouTube Music**
+- Under *All YouTube data included*, keep only **history**
+- Under *Multiple formats*, set history to **JSON** — the default is HTML, which this can't read
+- Export, wait for the email, then unzip what arrives
+
+The file you want is `watch-history.json`.
 
 **2. Run it.**
 
