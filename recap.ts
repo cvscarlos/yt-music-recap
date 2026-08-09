@@ -19,7 +19,7 @@
 // only thinner. Nothing here reads them at import time, so rank() stays a pure function of
 // its arguments and the self-test can drive it without touching the disk.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import assert from "node:assert/strict";
 
 type Activity = {
@@ -372,6 +372,59 @@ function selftest() {
   console.log("selftest ok");
 }
 
+const page = (title: string, body: string) =>
+  [
+    `<meta charset="utf-8"><title>${title}</title>`,
+    `<body style="font:16px/1.6 system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem">`,
+    body,
+    `</body>`,
+  ].join("\n");
+
+// Rebuilt from whatever out/ holds, so it stays right as periods are added or deleted, and
+// a static server picks it up as the landing page without being told to.
+function writeIndex() {
+  // Newest first, by when each period began — sorting the labels as text interleaves
+  // "h1-2026" with "2025" and reads as no order at all.
+  const startOf = (label: string) => {
+    try {
+      return parsePeriod(label).start;
+    } catch {
+      return -Infinity; // an unrecognised name still gets listed, just last
+    }
+  };
+  const periods = readdirSync("out")
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => f.replace(/\.json$/, ""))
+    .sort((a, b) => startOf(b) - startOf(a) || a.localeCompare(b));
+
+  const rows = periods.map((label) => {
+    const tracks: Track[] = JSON.parse(readFileSync(`out/${label}.json`, "utf8"));
+    const plays = tracks.reduce((n, t) => n + t.plays, 0);
+    const hours = Math.round(tracks.reduce((n, t) => n + (t.minutes ?? 0), 0) / 60);
+    const top = tracks[0];
+    return [
+      `<li style="margin:1.4rem 0">`,
+      `<strong style="font-size:1.15rem">${label}</strong> — ${tracks.length} tracks, ${plays.toLocaleString()} plays${hours ? `, ${hours} hours` : ""}<br>`,
+      top ? `<span style="color:#666">#1 ${top.title} — ${top.artist}</span><br>` : ``,
+      `<a href="${label}.md">list</a> · <a href="${label}.json">data</a>`,
+      existsSync(`out/${label}.playlist.html`) ? ` · <a href="${label}.playlist.html">play</a>` : ``,
+      `</li>`,
+    ].join("");
+  });
+
+  writeFileSync(
+    "out/index.html",
+    page(
+      "Your recaps",
+      [
+        `<h1>Your recaps</h1>`,
+        periods.length ? `<ul style="list-style:none;padding:0">${rows.join("")}</ul>` : `<p>Nothing here yet.</p>`,
+        `<p style="color:#666"><small>Rebuilt each time a recap is generated.</small></p>`,
+      ].join("\n"),
+    ),
+  );
+}
+
 const args = process.argv.slice(2);
 const minSeconds = Number(args.find((a) => a.startsWith("--min-seconds="))?.split("=")[1] ?? DEFAULT_MIN_SECONDS);
 const [file, period, limitArg] = args.filter((a) => !a.startsWith("--"));
@@ -441,9 +494,8 @@ if (import.meta.filename !== process.argv[1]) {
   const url = `https://www.youtube.com/watch_videos?video_ids=${shown.map((t) => t.videoId).join(",")}`;
   writeFileSync(
     `out/${result.label}${suffix}.playlist.html`,
-    [
-      `<meta charset="utf-8"><title>${result.label} playlist</title>`,
-      `<body style="font:16px/1.6 system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem">`,
+    page(`${result.label} playlist`, [
+      `<p><a href="index.html">&larr; all recaps</a></p>`,
       `<h1>${result.label} — top ${shown.length}</h1>`,
       `<p>Open the link below while signed in to YouTube.</p>`,
       `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
@@ -464,10 +516,10 @@ if (import.meta.filename !== process.argv[1]) {
         ? `<p><em>${unplayable} track${unplayable === 1 ? "" : "s"} in this recap ${unplayable === 1 ? "is" : "are"} not licensed for your region and would be hidden by YouTube, so ${unplayable === 1 ? "it is" : "they are"} left out and the places filled from further down the ranking.</em></p>`
         : ``,
       `<ol>${shown.map((t) => `<li>${t.title} — ${t.artist}</li>`).join("")}</ol>`,
-      `</body>`,
-    ].join("\n"),
+    ].join("\n")),
   );
 
   console.log(toMarkdown(result));
-  console.error(`\nWrote out/${result.label}${suffix}.{md,json,playlist.html}`);
+  writeIndex();
+  console.error(`\nWrote out/${result.label}${suffix}.{md,json,playlist.html} and refreshed out/index.html`);
 }

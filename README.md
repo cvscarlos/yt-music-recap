@@ -130,6 +130,8 @@ They're plain files, so anything works. To flip through them in a browser:
 npx serve ./out/ -l 4900
 ```
 
+That opens an index of every period you've generated — newest first, with its top track — linking to each list, its data, and the playlist.
+
 ## Your history stays yours
 
 It never leaves your machine. There's no account, no server, no telemetry — the only thing that goes out is a track title or video ID when you ask for artists, and only then.
