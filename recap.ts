@@ -188,16 +188,19 @@ export function rank(
   const tracks: Track[] = [...byVideo.values()]
     .map((song) => {
       const ranked = [...song.versions].sort((a, b) => b[1].plays - a[1].plays);
-      let chosen = ranked.find(([id]) => availability[id] !== false);
-      if (!chosen) {
-        // Nothing played this period will play here, so fall back to any version of the
-        // song from the rest of the history. It must be known to play — an unchecked video
-        // is not evidence of anything, and swapping onto one could just as easily be blocked.
-        const alternate = (everyVersion.get(recordings[ranked[0][0]] ?? "") ?? []).find((id) => availability[id] === true);
+      let chosen = ranked[0];
+      if (availability[chosen[0]] === false) {
+        // Only now, replacing a version known not to play, and only onto one known to play.
+        // An unchecked video is not evidence of anything: the first attempt at this accepted
+        // "not known to be blocked" and duly swapped one blocked recording for another.
+        // Versions played this period come first, then any other the history has ever held.
+        const proven = ranked.find(([id]) => availability[id] === true);
+        const elsewhere = (everyVersion.get(recordings[chosen[0]] ?? "") ?? []).find((id) => availability[id] === true);
         // The name stays the one that was actually played; only the recording changes.
-        if (alternate) chosen = [alternate, ranked[0][1]];
+        if (proven) chosen = proven;
+        else if (elsewhere) chosen = [elsewhere, chosen[1]];
       }
-      const [videoId, top] = chosen ?? ranked[0];
+      const [videoId, top] = chosen;
       // Each version is timed by its own length. A live take can run twice as long as the
       // studio one, so charging every play to the representative's length misreports the
       // time spent. Versions of unknown length simply contribute nothing.
@@ -343,6 +346,23 @@ function selftest() {
 
   const unknown = rank(elsewhere, "summer-2023", 100, 0, songs, {}, { blockedVersion: false });
   assert.equal(unknown.tracks[0].videoId, "blockedVersion", "an unchecked version is not evidence it plays, so no swap");
+
+  // The costly mistake: an unchecked version played more often must not outrank a version
+  // known to play. Accepting "not known to be blocked" swapped one blocked video for another.
+  const threeWays: Activity[] = [
+    listen("2023-07-01T10:00:00Z", "blocked", "Held", "Rosewater"),
+    listen("2023-07-02T10:00:00Z", "blocked", "Held", "Rosewater"),
+    listen("2023-07-03T10:00:00Z", "blocked", "Held", "Rosewater"),
+    listen("2023-07-04T10:00:00Z", "unchecked", "Held", "Rosewater"),
+    listen("2023-07-05T10:00:00Z", "unchecked", "Held", "Rosewater"),
+    listen("2023-07-06T10:00:00Z", "proven", "Held", "Rosewater"),
+  ];
+  const picked = rank(threeWays, "summer-2023", 100, 0, { blocked: song, unchecked: song, proven: song }, {}, { blocked: false, proven: true });
+  assert.equal(picked.tracks[0].videoId, "proven", "replaces a blocked version only with one known to play, however few times it was played");
+
+  // But an unchecked version is still fine when nothing suggests a problem.
+  const untouched = rank(threeWays, "summer-2023", 100, 0, { blocked: song, unchecked: song, proven: song });
+  assert.equal(untouched.tracks[0].videoId, "blocked", "with nothing known, the most-played version still represents the song");
 
   // Each version is timed by its own length: three 3-minute plays plus one 10-minute live
   // play is 19 minutes. Charging all four to the representative's length would say 12.
