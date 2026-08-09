@@ -2,7 +2,7 @@
 // Create a real, permanent YouTube playlist from a recap.
 //
 //   node export.ts <period> [--title "..."] [--public] [--playable-only]
-//   node export.ts <period> --into=<playlistId>    finish a run that was cut short
+//   node export.ts <period> --into=<playlistId> [--prune]   finish or re-sync a playlist
 //
 // The list a watch_videos link builds is temporary and belongs to nobody, so YouTube offers
 // no way to keep it. Creating one you own is the only way, and that means acting as you,
@@ -169,7 +169,9 @@ async function insertWithRetry(playlistId: string, videoId: string, token: strin
 // paying to add everything a second time. Listing costs one unit per fifty items against
 // the fifty an insert costs, so checking is effectively free.
 async function existingItems(playlistId: string, token: string) {
-  const held: string[] = [];
+  // The entry's own id is needed as well as the video's: removing one addresses the entry,
+  // since the same video can sit in a playlist more than once.
+  const held: { entry: string; videoId: string }[] = [];
   let page = "";
   do {
     const r = await fetch(
@@ -178,10 +180,18 @@ async function existingItems(playlistId: string, token: string) {
     );
     const json = (await r.json()) as any;
     if (!r.ok) throw new Error(json.error?.message ?? `could not read playlist ${playlistId}`);
-    for (const item of json.items ?? []) held.push(item.contentDetails.videoId);
+    for (const item of json.items ?? []) held.push({ entry: item.id, videoId: item.contentDetails.videoId });
     page = json.nextPageToken ?? "";
   } while (page);
   return held;
+}
+
+async function removeEntry(entryId: string, token: string) {
+  const r = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?id=${entryId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!r.ok && r.status !== 204) throw new Error(((await r.json()) as any).error?.message ?? `delete failed with ${r.status}`);
 }
 
 async function main() {
@@ -194,7 +204,8 @@ async function main() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!period || !clientId || !clientSecret) {
-    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only] [--into=<playlistId>]");
+    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only]");
+    console.error("       node export.ts <period> --into=<playlistId> [--prune]   finish or re-sync a playlist");
     console.error("needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env — see .env.sample");
     process.exit(1);
   }
@@ -242,12 +253,30 @@ async function main() {
   const held = into ? await existingItems(playlistId, token) : [];
   if (into) console.log(`  ${playlistId} already holds ${held.length}; adding what is missing.\n`);
 
+  // A recap can change after a playlist is built — a blocked recording gets replaced by one
+  // that plays, say — leaving the old entry behind with nothing pointing at it. Removing
+  // those is opt-in: deleting from a playlist you own should never be a side effect.
+  if (into && args.includes("--prune")) {
+    const wanted = new Set(playable.map((t) => t.videoId));
+    const stale = held.filter((h) => !wanted.has(h.videoId));
+    for (const entry of stale) {
+      try {
+        await removeEntry(entry.entry, token);
+        console.log(`  removed ${entry.videoId}, no longer in this recap`);
+      } catch (e) {
+        console.error(`  could not remove ${entry.videoId} — ${(e as Error).message}`);
+      }
+    }
+    if (!stale.length) console.log("  nothing to remove; every entry is still in the recap.\n");
+    else console.log("");
+  }
+
   let added = 0;
   let done = 0;
   const lost: string[] = [];
   for (const track of playable) {
     done++;
-    if (held.includes(track.videoId)) continue;
+    if (held.some((h) => h.videoId === track.videoId)) continue;
     try {
       // Placed at its own rank rather than appended, so a run finished later still lands
       // each track where it belongs.

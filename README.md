@@ -110,6 +110,8 @@ node export.ts 2025 --into=PLxxxxxxxxxxxx
 
 That adds only what's missing, at the right position, so it costs the tracks left rather than all of them. The playlist id is in its URL, and the command is printed for you when quota runs out. The allowance resets at midnight US Pacific, not your midnight.
 
+The same command re-syncs a playlist after a recap changes. Add `--prune` and anything no longer in the recap is removed too — otherwise entries are only ever added, never taken away.
+
 ## Better artists, and listening time
 
 Optional, and worth it. With a free YouTube API key, every track gets the artist its label credited and the recap can tell you hours listened rather than only play counts.
