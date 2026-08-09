@@ -94,8 +94,8 @@ type Candidate = { artist: string; title: string } | null;
 //
 //   Provided to YouTube by Universal Music Group
 //
-//   Vai Pagar Caro Por Me Conhecer · Gloria
-//   Gloria
+//   Noite Aberta · Rosewater
+//   Cais
 //
 // The artist is stated for this exact video, so no title guessing is involved and a band
 // cannot lose its song to a famous act with the same name. Everything else is a fallback.
@@ -125,9 +125,10 @@ export function parseDuration(iso: string): number | null {
 
 // One request covers 50 videos and costs a single quota unit whatever it asks for, so
 // credits and durations come back together at no extra cost.
-// Where you are decides what will play. A track licensed only for Brazil is in the history
-// of someone who listened in Germany — YouTube Music served them an equivalent — but the
-// video ID itself will not play there, and a playlist built from it hides those entries.
+// Where you are decides what will play. A track licensed for one country can sit in the
+// history of someone listening from another, because YouTube Music served them an
+// equivalent — but that video ID will not play there, and a playlist built from it hides
+// the entry without saying so.
 export const currentRegion = () =>
   process.env.RECAP_REGION ?? new Intl.Locale(Intl.DateTimeFormat().resolvedOptions().locale).region ?? "US";
 
@@ -168,7 +169,7 @@ async function youtubeLookup(ids: string[], key: string, region: string) {
   return { artists, durations, recordings, playable };
 }
 
-// YouTube titles often carry the artist as well ("Celldweller feat. X - Shapeshifter"), so
+// YouTube titles often carry the artist as well ("Northbeam feat. X - Shapeshifter"), so
 // searching the whole string returns nothing. Fall back to the text after the last dash,
 // which is where the song title sits in that convention.
 export function queryVariants(title: string): string[] {
@@ -177,7 +178,7 @@ export function queryVariants(title: string): string[] {
 }
 
 // Searching a shortened query throws away the words that disambiguate it, and a famous
-// song frequently occupies the bare title: "Celldweller ... - Shapeshifter" cut down to
+// song frequently occupies the bare title: "Northbeam ... - Shapeshifter" cut down to
 // "Shapeshifter" returns Lorde from both catalogues at once, so even agreement between
 // them proves nothing. A shortened query is therefore only trusted when the artist it
 // returns is named in the full title — which is exactly the premise for splitting it.
@@ -374,25 +375,25 @@ async function main() {
 }
 
 function selftest() {
-  assert.ok(titlesMatch("Rosenrot", "Rosenrot (Album Version)"), "ignores bracketed suffixes");
-  assert.ok(titlesMatch("É Só Você Lembrar", "E So Voce Lembrar"), "ignores accents");
-  assert.ok(!titlesMatch("Metade", "Minha Metade Perfeita Do Amor"), "a title buried in a longer one is not that title");
-  assert.ok(!titlesMatch("Anemia", "Academia"), "similar-looking but different titles do not match");
-  assert.ok(PLACEHOLDERS.has("Release") && !PLACEHOLDERS.has("Gloria"), "a real artist is never looked up");
+  assert.ok(titlesMatch("Cortina", "Cortina (Album Version)"), "ignores bracketed suffixes");
+  assert.ok(titlesMatch("Água de Início", "Agua de Inicio"), "ignores accents");
+  assert.ok(!titlesMatch("Cortina", "A Cortina Vermelha do Teatro"), "a title buried in a longer one is not that title");
+  assert.ok(!titlesMatch("Marés", "Mares Bravas"), "similar-looking but different titles do not match");
+  assert.ok(PLACEHOLDERS.has("Release") && !PLACEHOLDERS.has("Rosewater"), "a real artist is never looked up");
 
   // Fuzzy tolerance: wide enough for transliteration, narrow enough to reject near-misses.
-  assert.ok(titlesMatch("Zetsubo Billy", "Zetsubou Billy"), "absorbs a transliteration variant");
+  assert.ok(titlesMatch("Shinjitsu Blues", "Shinjitu Blues"), "absorbs a transliteration variant");
   assert.ok(titlesMatch("Sonne", "Sonnne"), "absorbs a typo in a short title");
   assert.ok(!titlesMatch("Sonne", "Sonho"), "two edits in a short title is a different song");
   assert.ok(!titlesMatch("Amor", "Ator"), "very short titles stay strict");
-  assert.ok(!titlesMatch("Gloria", "Gloria Estefan"), "an artist name appended is not the same title");
+  assert.ok(!titlesMatch("Rosewater", "Rosewater Quartet"), "an artist name appended is not the same title");
 
   // Matching on Latin characters alone reduced these to empty strings, which made every
   // non-Latin title unmatchable and every pair of non-Latin artists look like agreement.
-  assert.ok(titlesMatch("一輪の花", "一輪の花"), "a non-Latin title matches itself");
-  assert.ok(titlesMatch("Зачем", "Зачем"), "and so does a Cyrillic one");
-  assert.notEqual(normalize("高橋洋子"), normalize("残酷な天使"), "two non-Latin artists are not the same artist");
-  assert.ok(normalize("一輪の花"), "a non-Latin value does not normalize away to nothing");
+  assert.ok(titlesMatch("桜の道", "桜の道"), "a non-Latin title matches itself");
+  assert.ok(titlesMatch("Дорога", "Дорога"), "and so does a Cyrillic one");
+  assert.notEqual(normalize("白鳥ミナ"), normalize("青葉カレン"), "two non-Latin artists are not the same artist");
+  assert.ok(normalize("桜の道"), "a non-Latin value does not normalize away to nothing");
 
   assert.ok(playableIn(undefined, "DE"), "no restriction plays anywhere");
   assert.ok(!playableIn({ allowed: ["BR"] }, "DE"), "licensed elsewhere will not play here");
@@ -400,48 +401,48 @@ function selftest() {
   assert.ok(!playableIn({ blocked: ["DE"] }, "DE"), "blocked here will not");
   assert.ok(playableIn({ blocked: ["BR"] }, "DE"), "blocked elsewhere still plays here");
 
-  assert.deepEqual(queryVariants("Celldweller feat. X - Shapeshifter"), ["Celldweller feat. X - Shapeshifter", "Shapeshifter"], "falls back to the text after the dash");
-  assert.deepEqual(queryVariants("Bodies"), ["Bodies"], "a plain title is searched once");
+  assert.deepEqual(queryVariants("Northbeam feat. X - Shapeshifter"), ["Northbeam feat. X - Shapeshifter", "Shapeshifter"], "falls back to the text after the dash");
+  assert.deepEqual(queryVariants("Held"), ["Held"], "a plain title is searched once");
 
-  const cell = "Celldweller feat. Styles Of Beyond - Shapeshifter";
+  const cell = "Northbeam feat. Ash Meridian - Shapeshifter";
   assert.ok(!plausibleArtist(cell, "Shapeshifter", "Lorde"), "rejects a famous song that took over the shortened query");
-  assert.ok(plausibleArtist(cell, "Shapeshifter", "Celldweller"), "accepts the artist actually named in the title");
-  assert.ok(plausibleArtist("Bodies", "Bodies", "Drowning Pool"), "an unshortened query needs no corroboration");
+  assert.ok(plausibleArtist(cell, "Shapeshifter", "Northbeam"), "accepts the artist actually named in the title");
+  assert.ok(plausibleArtist("Held", "Held", "Marisa Lange"), "an unshortened query needs no corroboration");
 
   // Real description text, as returned for these video IDs.
   assert.deepEqual(
-    parseArtTrack("Provided to YouTube by Universal Music Group\n\nBodies · Drowning Pool\n\nSinner\n\n℗ 2001 Craft Recordings\n\nReleased on: 2001-01-01"),
-    { title: "Bodies", artist: "Drowning Pool", album: "Sinner" },
+    parseArtTrack("Provided to YouTube by Universal Music Group\n\nHeld · Marisa Lange\n\nQuiet Harbour\n\n℗ 2001 Fieldnote Records\n\nReleased on: 2001-01-01"),
+    { title: "Held", artist: "Marisa Lange", album: "Quiet Harbour" },
     "reads what the label stated for this video",
   );
   assert.equal(
-    parseArtTrack("Provided to YouTube by Lujo Network\n\nTrava na Pose (feat. Mc Rennan) · DJ Patrick Muniz · Dj Olliver · Mc Topre\n\nTrava na Pose\n\n℗ Lujo")?.artist,
-    "DJ Patrick Muniz, Dj Olliver, Mc Topre",
+    parseArtTrack("Provided to YouTube by Lujo Network\n\nNoite Aberta (feat. Rena) · DJ Alvorada · Dj Petra · Mc Lume\n\nNoite Aberta\n\n℗ Lujo")?.artist,
+    "DJ Alvorada, Dj Petra, Mc Lume",
     "keeps every credited artist",
   );
   // The surrounding prose is translated for non-English accounts; the ℗ and the · are not.
   assert.equal(
-    parseArtTrack("Bereitgestellt von Universal Music Group\n\nSonne · Rammstein\n\nMutter\n\n℗ 2001 Universal")?.album,
-    "Mutter",
+    parseArtTrack("Bereitgestellt von Universal Music Group\n\nSonne · Nachtfalter\n\nAbendrot\n\n℗ 2001 Universal")?.album,
+    "Abendrot",
     "does not depend on the description being English",
   );
   assert.equal(parseArtTrack("a normal upload · with a stray dot but no phonogram mark"), null, "an ordinary description is not mistaken for credits");
   assert.equal(parseArtTrack(""), null, "an empty description resolves to nothing");
 
-  assert.equal(songKey("Só Eu Sei?", "Gloria"), songKey("Só Eu Sei", "Gloria"), "punctuation does not make a second song");
-  assert.equal(songKey("Papercut (Live In Texas)", "Linkin Park"), songKey("Papercut", "Linkin Park"), "a live take is the same song");
+  assert.equal(songKey("Maré Cheia?", "Rosewater"), songKey("Maré Cheia", "Rosewater"), "punctuation does not make a second song");
+  assert.equal(songKey("Held (Live In Texas)", "Rosewater"), songKey("Held", "Rosewater"), "a live take is the same song");
   // The same holds in any language, because no language is consulted.
-  assert.equal(songKey("Anjo Bom (Ao Vivo)", "Amado Batista"), songKey("Anjo Bom", "Amado Batista"), "Portuguese");
-  assert.equal(songKey("Sonne (Live aus Berlin)", "Rammstein"), songKey("Sonne", "Rammstein"), "German");
-  assert.equal(songKey("一輪の花 (ライブ)", "高橋洋子"), songKey("一輪の花", "高橋洋子"), "Japanese");
+  assert.equal(songKey("Noite Boa (Ao Vivo)", "Bruno Vilares"), songKey("Noite Boa", "Bruno Vilares"), "Portuguese");
+  assert.equal(songKey("Sonne (Live aus Berlin)", "Nachtfalter"), songKey("Sonne", "Nachtfalter"), "German");
+  assert.equal(songKey("桜の道 (ライブ)", "白鳥ミナ"), songKey("桜の道", "白鳥ミナ"), "Japanese");
 
-  assert.notEqual(songKey("Papercut", "Linkin Park"), songKey("Papercut", "Anberlin"), "a different artist is a different song");
-  assert.notEqual(songKey("Numb", "Linkin Park"), songKey("Numb Encore", "Linkin Park"), "a different title is a different song");
+  assert.notEqual(songKey("Held", "Rosewater"), songKey("Held", "Northbeam"), "a different artist is a different song");
+  assert.notEqual(songKey("Marés", "Rosewater"), songKey("Marés Bravas", "Rosewater"), "a different title is a different song");
   // Non-Latin titles must survive folding. Stripping them would leave every such song
   // sharing one empty key, quietly merging songs that have nothing to do with each other.
-  assert.notEqual(songKey("一輪の花", "高橋洋子"), songKey("残酷な天使のテーゼ", "高橋洋子"), "two Japanese titles stay distinct");
-  assert.notEqual(songKey("Зачем", "xolair"), songKey("Прощай", "xolair"), "two Cyrillic titles stay distinct");
-  assert.ok(songKey("一輪の花", "高橋洋子").startsWith("一輪の花"), "a Japanese title survives folding");
+  assert.notEqual(songKey("桜の道", "白鳥ミナ"), songKey("星の記憶", "白鳥ミナ"), "two Japanese titles stay distinct");
+  assert.notEqual(songKey("Дорога", "Veresk"), songKey("Ветер", "Veresk"), "two Cyrillic titles stay distinct");
+  assert.ok(songKey("桜の道", "白鳥ミナ").startsWith("桜の道"), "a Japanese title survives folding");
   assert.equal(songKey("???", "Some Artist"), "", "a title with nothing to match on yields no key at all");
 
   assert.equal(parseDuration("PT3M22S"), 202, "minutes and seconds");

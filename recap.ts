@@ -289,19 +289,19 @@ function selftest() {
 
   // Every version of one song counts towards it, and the version played most represents
   // it — so a playlist gets the studio take rather than the live one heard once.
-  const song = "papercut · linkin park"; // what songKey() yields for all three
+  const song = "held · rosewater"; // what songKey() yields for all three
   const versions: Activity[] = [
-    listen("2023-07-01T10:00:00Z", "studio", "Papercut", "Linkin Park"),
-    listen("2023-07-02T10:00:00Z", "studio", "Papercut", "Linkin Park"),
-    listen("2023-07-03T10:00:00Z", "reissue", "Papercut", "Linkin Park"),
-    listen("2023-07-04T10:00:00Z", "live", "Papercut (Live In Texas)", "Linkin Park"),
+    listen("2023-07-01T10:00:00Z", "studio", "Held", "Rosewater"),
+    listen("2023-07-02T10:00:00Z", "studio", "Held", "Rosewater"),
+    listen("2023-07-03T10:00:00Z", "reissue", "Held", "Rosewater"),
+    listen("2023-07-04T10:00:00Z", "live", "Held (Live In Texas)", "Rosewater"),
   ];
   const merged = rank(versions, "summer-2023", 100, 0, { studio: song, reissue: song, live: song });
   assert.equal(merged.tracks.length, 1, "studio, reissue and live take are all one song");
   assert.equal(merged.tracks[0].plays, 4, "every version's plays count towards the song");
   assert.equal(merged.tracks[0].versions, 3, "records how many videos were counted together");
   assert.equal(merged.tracks[0].videoId, "studio", "the most-played version represents the song");
-  assert.equal(merged.tracks[0].title, "Papercut", "and so its title is the one shown");
+  assert.equal(merged.tracks[0].title, "Held", "and so its title is the one shown");
 
   assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without song data every video stands alone");
 

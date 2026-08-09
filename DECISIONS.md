@@ -57,7 +57,7 @@ Keeping a playlist means creating one you own, which means acting as the account
 
 Music is licensed per country and YouTube hides what isn't licensed where you are, without saying so. In one real recap **26 of 100 tracks** were unavailable.
 
-Availability follows the **viewer's location, not the Google account's country** — confirmed against a BR account in Germany, where the DE prediction matched the observed hidden count exactly and BR did not.
+Availability follows the **viewer's location, not the Google account's country**. This was confirmed on an account registered in one country while listening from another: the prediction for the listening location matched the number of tracks YouTube actually hid, and the prediction for the account's country did not.
 
 Guessing the region from system locale returns the *language's* country (US for an English macOS abroad), so `RECAP_REGION` is explicit. `availability.json` records which region it was built for, so changing it invalidates the file rather than reusing stale answers.
 

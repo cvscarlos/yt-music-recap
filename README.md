@@ -13,16 +13,16 @@ It runs on your machine, needs no account, and installs nothing.
 ```
 # 2025 Recap — top 100
 
-16792 YouTube Music listens across 6397 tracks, 2025-01-01 to 2025-12-31.
-Excludes 2554 skips — tracks abandoned within 60s.
+14208 YouTube Music listens across 5310 tracks, 2025-01-01 to 2025-12-31.
+Excludes 2117 skips — tracks abandoned within 60s.
 
-These 100 tracks alone account for 117 hours of listening.
+These 100 tracks alone account for 103 hours of listening.
 
-| # | Track                              | Artist      | Plays | Minutes |
-| 1 | Vois Sur Ton Chemin *(2 versions)* | deprezz     |    51 |     160 |
-| 2 | Só Eu Sei *(2 versions)*           | Gloria      |    46 |     163 |
-| 3 | Out Of Control                     | Hoobastank  |    37 |     101 |
-| 4 | RATATATA                           | BABYMETAL   |    31 |     112 |
+| # | Track                          | Artist            | Plays | Minutes |
+| 1 | Harbour Lights *(2 versions)*  | The Paper Kites   |    48 |     154 |
+| 2 | Midnight Static                | Rosewater         |    41 |     139 |
+| 3 | Held                           | Marisa Lange      |    35 |      97 |
+| 4 | Cortina                        | Bruno Vilares     |    29 |     104 |
 ```
 
 Every track keeps its video ID, so the list turns straight into a real playlist.
