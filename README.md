@@ -57,7 +57,7 @@ The file you want is `watch-history.json`.
 node recap.ts watch-history.json 2025
 ```
 
-**3. Open `out/`.** Your recap is there as a readable list, as data, and as a playlist link.
+**3. Open `out/`.** Three files per period: `2025.md` to read, `2025.json` if you want the data, and `2025.playlist.html` to hear it straight away.
 
 That's it. No install, no sign-up, no build step. Needs Node 22.18 or newer.
 
@@ -81,13 +81,13 @@ node recap.ts watch-history-2024.json,watch-history-2026.json 2025
 
 ## Turn it into a playlist
 
-Open `out/2025.playlist.html` and follow the link while signed in to YouTube. It builds the playlist for you, ready to save.
+Open `out/2025.playlist.html` and follow the link while signed in to YouTube. Your recap starts playing in order, straight away.
 
-No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
+No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks. Good for hearing a year back; YouTube plays this one but won't let you keep it.
 
 Music is licensed country by country, and YouTube hides whatever isn't licensed where you are — a playlist can arrive quietly missing a dozen songs. Set `RECAP_REGION` in `.env` to the country you watch from and those are swapped out for the next tracks down, so you get fifty that play.
 
-The list this makes is a temporary one, which YouTube will play but won't let you keep. For a permanent playlist in your own account:
+For a playlist that stays in your account:
 
 ```bash
 node export.ts 2025
