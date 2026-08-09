@@ -99,6 +99,14 @@ Tested against a real playlist, both ways:
 
 `snippet.thumbnails` on a playlist is output-only. Nothing here sets a cover, so what YouTube shows is its own default, derived from the first video; YouTube Music renders playlist art separately. There is no API lever for either, so none is attempted.
 
+## One OAuth scope, broader than wanted
+
+`export.ts` requests `https://www.googleapis.com/auth/youtube` and nothing else. It is used for `playlists.insert` and `playlistItems.insert`; reading metadata uses an API key and needs no scope.
+
+Google classifies it as *sensitive*, and it permits more than creating playlists — deleting videos, for one. There is no narrower option: `playlists.insert` accepts only this, `youtube.force-ssl` (wider), or `youtubepartner`. `youtube.readonly` cannot write and `youtube.upload` covers uploads alone.
+
+The consent screen does not enforce its scope list while the app is in Testing — the scope comes from the authorization request — so playlists are created before that list is filled in. Keep the app in Testing for personal use: publishing with a sensitive scope triggers verification, and the only cost of Testing is a refresh token that expires weekly.
+
 ## Known limits, accepted
 
 - Personal uploads to the YouTube Music library are invisible to every official API and cannot be added to a playlist. An unofficial client (`youtubei.js`) is the only route, and carries cookie upkeep and breakage — deliberately not taken.
