@@ -1,6 +1,6 @@
-# yt-music-recap
+<h1 align="center">YOUTUBE MUSIC RECAP</h1>
 
-**Get back the YouTube Music Recap playlists you lost.**
+<p align="center"><strong>Get back the YouTube Music Recap playlists you lost.</strong></p>
 
 Every December, YouTube Music hands you a Recap. Then the year turns, and it's gone — the playlist, the rankings, the whole thing. There's no archive and no way to ask for last year's.
 
