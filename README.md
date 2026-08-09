@@ -83,9 +83,20 @@ The list this makes is a temporary one, which YouTube will play but won't let yo
 
 ```bash
 node export.ts 2025
+node export.ts 2025 --title="My 2025" --public
 ```
 
 It's created private, named after the period, and it's yours — no length limit and nothing to save by hand. This one needs sign-in rather than just a key, so add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` (see the sample) and approve it in the browser once.
+
+Google allows 10,000 quota units a day and each track costs 50, so **a hundred tracks is half your daily allowance** and two full attempts will exhaust it. If a run stops partway, don't start again — finish the one you have:
+
+```bash
+node export.ts 2025 --into=PLxxxxxxxxxxxx
+```
+
+That adds only what's missing, at the right position, so it costs the tracks left rather than all of them. The playlist id is in its URL, and the command is printed for you when quota runs out. The allowance resets at midnight US Pacific, not your midnight.
+
+Tracks not licensed where you are still go in, so they appear by themselves if that ever changes; YouTube hides them meanwhile. Add `--playable-only` if you'd rather have a playlist that runs straight through.
 
 ## Better artists, and listening time
 
