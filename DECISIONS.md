@@ -90,6 +90,15 @@ Considered and declined, each for a specific reason:
 
 The known cost: a song split across two videos that **both** fall below the cut-off stays split, and their combined plays never lift it into the list. Passing the history instead would fix it, at roughly one request per fifty videos.
 
+## Playlist covers cannot be set, and are left alone
+
+Tested against a real playlist, both ways:
+
+- `thumbnails.set` takes a `videoId`; there is no playlist equivalent.
+- `playlists.update` accepts `snippet.thumbnails` with a 200 and ignores it — the thumbnail afterwards is unchanged.
+
+`snippet.thumbnails` on a playlist is output-only. Nothing here sets a cover, so what YouTube shows is its own default, derived from the first video; YouTube Music renders playlist art separately. There is no API lever for either, so none is attempted.
+
 ## Known limits, accepted
 
 - Personal uploads to the YouTube Music library are invisible to every official API and cannot be added to a playlist. An unofficial client (`youtubei.js`) is the only route, and carries cookie upkeep and breakage — deliberately not taken.
