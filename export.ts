@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 // Create a real, permanent YouTube playlist from a recap.
 //
-//   node export.ts <period> [--title "..."] [--public]
+//   node export.ts <period> [--title "..."] [--public] [--playable-only]
+//   node export.ts <period> --into=<playlistId>    finish a run that was cut short
 //
 // The list a watch_videos link builds is temporary and belongs to nobody, so YouTube offers
 // no way to keep it. Creating one you own is the only way, and that means acting as you,
 // which means OAuth — an API key authorises reading public data and nothing more.
 //
 // Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env, from an OAuth client of type
-// "Desktop app". The refresh token it earns is written back to .env, so authorising happens
-// once rather than daily, and every secret this project holds lives in one file that is
-// already ignored by git and understood by anyone reading the repo to be off limits.
+// "Desktop app". The refresh token it earns goes to oauth.env, so authorising happens once
+// rather than daily and nothing this program writes can disturb a key you typed by hand.
+//
+// Adding a track costs 50 of the 10,000 quota units a day allows, so a hundred-track
+// playlist is half the allowance and a second attempt would exhaust it. --into adds only
+// what is missing, which is what makes finishing tomorrow cost only the tracks left.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -142,13 +146,13 @@ async function youtube(path: string, token: string, body: unknown, params: strin
 // Inserts are sent one at a time on purpose. Position follows call order, and this playlist
 // is a ranking, so sending them at once would shuffle it; concurrent writes to one playlist
 // are also what provokes these conflicts in the first place.
-async function insertWithRetry(playlistId: string, videoId: string, token: string, attempts = 3) {
+async function insertWithRetry(playlistId: string, videoId: string, token: string, position: number, attempts = 3) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await youtube(
         "playlistItems",
         token,
-        { snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } } },
+        { snippet: { playlistId, position, resourceId: { kind: "youtube#video", videoId } } },
         "part=snippet",
       );
     } catch (e) {
@@ -161,16 +165,36 @@ async function insertWithRetry(playlistId: string, videoId: string, token: strin
   }
 }
 
+// What a playlist already holds, so a run that was cut short can be finished without
+// paying to add everything a second time. Listing costs one unit per fifty items against
+// the fifty an insert costs, so checking is effectively free.
+async function existingItems(playlistId: string, token: string) {
+  const held: string[] = [];
+  let page = "";
+  do {
+    const r = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=50&playlistId=${playlistId}&pageToken=${page}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    const json = (await r.json()) as any;
+    if (!r.ok) throw new Error(json.error?.message ?? `could not read playlist ${playlistId}`);
+    for (const item of json.items ?? []) held.push(item.contentDetails.videoId);
+    page = json.nextPageToken ?? "";
+  } while (page);
+  return held;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const [period] = args.filter((a) => !a.startsWith("--"));
   const title = args.find((a) => a.startsWith("--title="))?.slice(8) ?? `${period} Recap`;
+  const into = args.find((a) => a.startsWith("--into="))?.slice(7);
   const privacy = args.includes("--public") ? "public" : "private";
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!period || !clientId || !clientSecret) {
-    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only]");
+    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only] [--into=<playlistId>]");
     console.error("needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env — see .env.sample");
     process.exit(1);
   }
@@ -204,30 +228,50 @@ async function main() {
   console.log(`Costs about ${cost.toLocaleString()} of the 10,000 daily quota units.\n`);
 
   const token = await accessToken(clientId, clientSecret);
-  const playlist = await youtube(
-    "playlists",
-    token,
-    { snippet: { title, description: `Reconstructed from Google Takeout listening history.` }, status: { privacyStatus: privacy } },
-    "part=snippet,status",
-  );
+  const playlistId =
+    into ??
+    (
+      await youtube(
+        "playlists",
+        token,
+        { snippet: { title, description: `Reconstructed from Google Takeout listening history.` }, status: { privacyStatus: privacy } },
+        "part=snippet,status",
+      )
+    ).id;
+
+  const held = into ? await existingItems(playlistId, token) : [];
+  if (into) console.log(`  ${playlistId} already holds ${held.length}; adding what is missing.\n`);
 
   let added = 0;
+  let done = 0;
   const lost: string[] = [];
   for (const track of playable) {
+    done++;
+    if (held.includes(track.videoId)) continue;
     try {
-      await insertWithRetry(playlist.id, track.videoId, token);
+      // Placed at its own rank rather than appended, so a run finished later still lands
+      // each track where it belongs.
+      await insertWithRetry(playlistId, track.videoId, token, done - 1);
       added++;
-      process.stdout.write(`\r  added ${added}/${playable.length}`);
+      process.stdout.write(`\r  added ${added}, at ${done}/${playable.length}`);
     } catch (e) {
-      // One rejected video should not abandon the rest of the year.
-      lost.push(`${track.title} — ${(e as Error).message}`);
+      const message = (e as Error).message;
+      lost.push(`${track.title} — ${message}`);
+      // Once the daily allowance is gone every remaining call fails the same way, so stop
+      // rather than printing the same line ninety times.
+      if (/quota/i.test(message)) {
+        console.error(`\n\nDaily quota is spent. It resets at midnight US Pacific.`);
+        console.error(`Finish this playlist then — nothing already added is charged again:`);
+        console.error(`  node export.ts ${period} --into=${playlistId}`);
+        break;
+      }
     }
   }
   if (lost.length) {
-    console.error(`\n\n${lost.length} could not be added:`);
+    console.error(`\n${lost.length} not added:`);
     for (const l of lost) console.error(`  ${l}`);
   }
-  console.log(`\n\n${added} of ${playable.length} added: https://music.youtube.com/playlist?list=${playlist.id}`);
+  console.log(`\n${added} added: https://music.youtube.com/playlist?list=${playlistId}`);
 }
 
 function selftest() {
