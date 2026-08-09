@@ -81,20 +81,26 @@ node recap.ts watch-history-2024.json,watch-history-2026.json 2025
 
 ## Turn it into a playlist
 
+Two ways, depending on whether you want to keep it.
+
+### Just play it — nothing to set up
+
 Open `out/2025.playlist.html` and follow the link while signed in to YouTube. Your recap starts playing in order, straight away.
 
-No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks. Good for hearing a year back; YouTube plays this one but won't let you keep it.
+No API key, no OAuth, no Google Cloud project, no quota — but YouTube treats this as a temporary list, so it plays and can't be saved. Fifty tracks.
 
-Music is licensed country by country, and YouTube hides whatever isn't licensed where you are — a playlist can arrive quietly missing a dozen songs. Set `RECAP_REGION` in `.env` to the country you watch from and those are swapped out for the next tracks down, so you get fifty that play.
-
-For a playlist that stays in your account:
+### Keep it — sign in once
 
 ```bash
 node export.ts 2025
 node export.ts 2025 --title="My 2025" --public
 ```
 
-It's created private, named after the period, and it's yours — no length limit and nothing to save by hand. This one needs sign-in rather than just a key, so add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` (see the sample) and approve it in the browser once.
+A real playlist in your account: private by default, named after the period, any length, and yours to keep. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` (see the sample) and approve it in the browser once.
+
+---
+
+Whichever you use, set `RECAP_REGION` in `.env` to the country you watch from. Music is licensed country by country and YouTube hides what isn't licensed where you are, so a playlist can arrive quietly missing a dozen songs. Where your history holds another recording of the same song that does play, you get that one instead. Otherwise the link swaps in the next track down, while the export keeps the blocked one so it appears by itself if the licensing ever changes — add `--playable-only` if you'd rather it ran straight through.
 
 Google allows 10,000 quota units a day and each track costs 50, so **a hundred tracks is half your daily allowance** and two full attempts will exhaust it. If a run stops partway, don't start again — finish the one you have:
 
@@ -103,8 +109,6 @@ node export.ts 2025 --into=PLxxxxxxxxxxxx
 ```
 
 That adds only what's missing, at the right position, so it costs the tracks left rather than all of them. The playlist id is in its URL, and the command is printed for you when quota runs out. The allowance resets at midnight US Pacific, not your midnight.
-
-Tracks not licensed where you are still go in, so they appear by themselves if that ever changes; YouTube hides them meanwhile. Add `--playable-only` if you'd rather have a playlist that runs straight through.
 
 ## Better artists, and listening time
 
