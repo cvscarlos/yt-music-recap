@@ -312,7 +312,9 @@ async function main() {
     console.log(`  ${got.durations.size} track lengths, ${got.recordings.size} recordings, ` +
         `${[...got.playable.values()].filter((x) => !x).length} not playable in ${region}.\n`);
   } else {
-    console.log("  YOUTUBE_API_KEY is not set — using catalogue search only, which needs review.\n");
+    console.log("  YOUTUBE_API_KEY is not set, so only catalogue search is available and it");
+    console.log("  guesses from titles. For exact artists, lengths and regions:");
+    console.log("    cp .env.sample .env      # then paste a YouTube Data API key into it\n");
   }
 
   if (!todo.size) {

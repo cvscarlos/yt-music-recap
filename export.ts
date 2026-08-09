@@ -206,13 +206,17 @@ async function main() {
   if (!period || !clientId || !clientSecret) {
     console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only]");
     console.error("       node export.ts <period> --into=<playlistId> [--prune]   finish or re-sync a playlist");
-    console.error("needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env — see .env.sample");
+    if (!clientId || !clientSecret) {
+      console.error(`\nGOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set. To create a playlist:`);
+      console.error(`  cp .env.sample .env      # then paste an OAuth client id and secret into it`);
+    }
     process.exit(1);
   }
 
   const file = `out/${period}.json`;
   if (!existsSync(file)) {
-    console.error(`No recap at ${file}. Run recap.ts for ${period} first.`);
+    console.error(`No recap at ${file}. Build it first:`);
+    console.error(`  node recap.ts ${period}`);
     process.exit(1);
   }
   const tracks: { videoId: string; title: string; artist: string }[] = JSON.parse(readFileSync(file, "utf8"));
