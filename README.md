@@ -49,12 +49,12 @@ Every track keeps its video ID, so the list turns straight into a real playlist.
 - Under *Multiple formats*, set history to **JSON** — the default is HTML, which this can't read
 - Export, wait for the email, then unzip what arrives
 
-The file you want is `watch-history.json`.
+The file you want is `watch-history.json`. Drop it in this folder and the commands below find it on their own; anywhere else, pass its path as the first argument.
 
 **2. Run it.**
 
 ```bash
-node recap.ts watch-history.json 2025
+node recap.ts 2025
 ```
 
 **3. Open `out/`.** Three files per period: `2025.md` to read, `2025.json` if you want the data, and `2025.playlist.html` to hear it straight away.
@@ -64,14 +64,14 @@ That's it. No install, no sign-up, no build step. Needs Node 22.18 or newer.
 ### Any period you like
 
 ```bash
-node recap.ts watch-history.json 2023                      # a year
-node recap.ts watch-history.json h1-2025                   # a half
-node recap.ts watch-history.json q3-2024                   # a quarter
-node recap.ts watch-history.json summer-2023               # a season
-node recap.ts watch-history.json 2023-06-01..2023-08-31    # any range
+node recap.ts 2023                      # a year
+node recap.ts h1-2025                   # a half
+node recap.ts q3-2024                   # a quarter
+node recap.ts summer-2023               # a season
+node recap.ts 2023-06-01..2023-08-31    # any range
 ```
 
-Add a number to change the length: `node recap.ts watch-history.json 2025 50`.
+Add a number to change the length: `node recap.ts 2025 50`.
 
 Google caps each export, so a history reaching further back means several of them. List them together and they merge, duplicates and all:
 
@@ -117,7 +117,7 @@ Optional, and worth it. With a free YouTube API key, every track gets the artist
 ```bash
 cp .env.sample .env      # then paste your key in
 node enrich.ts
-node recap.ts watch-history.json 2025
+node recap.ts 2025
 ```
 
 Getting the key takes about a minute — create a project at [console.cloud.google.com](https://console.cloud.google.com), enable **YouTube Data API v3**, then make an **API key** at `https://console.cloud.google.com/apis/credentials?project=<project-id>`. It's a plain API key, so there's no consent screen and no app review. A whole history costs a rounding error against the free daily allowance.

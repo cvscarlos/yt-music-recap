@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Rebuild a YouTube Music Recap playlist from a Google Takeout watch-history.json.
 //
-//   node recap.ts <history.json[,more.json]> <period> [limit] [--min-seconds=N]
+//   node recap.ts [history.json[,more.json]] <period> [limit] [--min-seconds=N]
+//   the history file defaults to ./watch-history.json when left out
 //   node recap.ts --selftest
 //
 // period: 2025 | h1-2025 | q3-2025 | summer-2025 | 2025-06-01..2025-08-31
@@ -427,15 +428,28 @@ function writeIndex() {
 
 const args = process.argv.slice(2);
 const minSeconds = Number(args.find((a) => a.startsWith("--min-seconds="))?.split("=")[1] ?? DEFAULT_MIN_SECONDS);
-const [file, period, limitArg] = args.filter((a) => !a.startsWith("--"));
+// The history file may be left out when it sits here under its usual name. A period never
+// ends in .json, so which argument was omitted is never in doubt.
+const DEFAULT_HISTORY = "watch-history.json";
+const positional = args.filter((a) => !a.startsWith("--"));
+const named = positional[0]?.endsWith(".json") ?? false;
+const file = named ? positional[0]! : DEFAULT_HISTORY;
+const [period, limitArg] = named ? positional.slice(1) : positional;
 
 // Only act when run directly, so importing rank() neither writes files nor exits.
 if (import.meta.filename !== process.argv[1]) {
   // imported for its exports
 } else if (args.includes("--selftest")) {
   selftest();
-} else if (!file || !period || Number.isNaN(minSeconds)) {
-  console.error(`usage: node recap.ts <watch-history.json> <period> [limit] [--min-seconds=N]  (default ${DEFAULT_MIN_SECONDS}, 0 counts every event)`);
+} else if (!period || Number.isNaN(minSeconds)) {
+  console.error(`usage: node recap.ts [history.json] <period> [limit] [--min-seconds=N]`);
+  console.error(`  history defaults to ./${DEFAULT_HISTORY}; skips are anything under ${DEFAULT_MIN_SECONDS}s, and 0 counts every event`);
+  process.exit(1);
+} else if (!existsSync(file.split(",")[0]!.trim())) {
+  // Saying which file was looked for beats a usage line when the argument was simply left
+  // out and the export is sitting somewhere else under a different name.
+  console.error(`No history file at ${file}.`);
+  console.error(named ? `  Check the path.` : `  Put your Takeout export here as ${DEFAULT_HISTORY}, or pass its path: node recap.ts <file.json> ${period}`);
   process.exit(1);
 } else {
   // Exports are capped, so a longer history means several overlapping ones. Listing them
