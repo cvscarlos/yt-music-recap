@@ -130,6 +130,18 @@ export function rank(
   const dataStart = all[0].at;
   const dataEnd = all[all.length - 1].at;
 
+  // Every video ever seen holding each song, taken from the whole history rather than the
+  // requested period. A song blocked in the version played this year is often available in
+  // one played another year, and for a playlist any recording of the song will do.
+  const everyVersion = new Map<string, string[]>();
+  for (const { videoId } of all) {
+    const song = recordings[videoId!];
+    if (!song) continue;
+    const seen = everyVersion.get(song);
+    if (!seen) everyVersion.set(song, [videoId!]);
+    else if (!seen.includes(videoId!)) seen.push(videoId!);
+  }
+
   for (let i = 0; i < all.length; i++) {
     const { at, videoId, a } = all[i];
     if (!(at >= start && at < end)) continue;
@@ -176,7 +188,16 @@ export function rank(
   const tracks: Track[] = [...byVideo.values()]
     .map((song) => {
       const ranked = [...song.versions].sort((a, b) => b[1].plays - a[1].plays);
-      const [videoId, top] = ranked.find(([id]) => availability[id] !== false) ?? ranked[0];
+      let chosen = ranked.find(([id]) => availability[id] !== false);
+      if (!chosen) {
+        // Nothing played this period will play here, so fall back to any version of the
+        // song from the rest of the history. It must be known to play — an unchecked video
+        // is not evidence of anything, and swapping onto one could just as easily be blocked.
+        const alternate = (everyVersion.get(recordings[ranked[0][0]] ?? "") ?? []).find((id) => availability[id] === true);
+        // The name stays the one that was actually played; only the recording changes.
+        if (alternate) chosen = [alternate, ranked[0][1]];
+      }
+      const [videoId, top] = chosen ?? ranked[0];
       // Each version is timed by its own length. A live take can run twice as long as the
       // studio one, so charging every play to the representative's length misreports the
       // time spent. Versions of unknown length simply contribute nothing.
@@ -309,6 +330,19 @@ function selftest() {
   assert.equal(merged.tracks[0].title, "Held", "and so its title is the one shown");
 
   assert.equal(rank(versions, "summer-2023", 100, 0).tracks.length, 3, "without song data every video stands alone");
+
+  // A song whose every version this period is blocked borrows one from another period.
+  const elsewhere: Activity[] = [
+    listen("2022-03-01T10:00:00Z", "openVersion", "Held", "Rosewater"), // outside the period
+    listen("2023-07-01T10:00:00Z", "blockedVersion", "Held", "Rosewater"),
+  ];
+  const songs = { openVersion: song, blockedVersion: song };
+  const rescued = rank(elsewhere, "summer-2023", 100, 0, songs, {}, { blockedVersion: false, openVersion: true });
+  assert.equal(rescued.tracks[0].videoId, "openVersion", "swaps to a version that plays, found outside the period");
+  assert.equal(rescued.tracks[0].plays, 1, "counting still reflects only what was played in the period");
+
+  const unknown = rank(elsewhere, "summer-2023", 100, 0, songs, {}, { blockedVersion: false });
+  assert.equal(unknown.tracks[0].videoId, "blockedVersion", "an unchecked version is not evidence it plays, so no swap");
 
   // Each version is timed by its own length: three 3-minute plays plus one 10-minute live
   // play is 19 minutes. Charging all four to the representative's length would say 12.
