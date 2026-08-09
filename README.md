@@ -29,7 +29,7 @@ Every track keeps its video ID, so the list turns straight into a real playlist.
 
 ## What makes the numbers right
 
-**Skips don't count as plays.** A track you abandoned after eight seconds isn't a track you listened to.
+**Skips don't count as plays.** Anything you dropped inside a minute doesn't reach your ranking — skipping past a song isn't listening to it.
 
 **Every version of a song counts as that song.** The studio take, the live take and the reissue are one entry, credited to whichever version you actually played — not three rivals splitting the votes.
 
