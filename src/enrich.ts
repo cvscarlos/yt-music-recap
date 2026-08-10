@@ -2,8 +2,8 @@
 // Fill in artists for tracks whose Takeout channel is a placeholder rather than a name,
 // and record how long each track runs and which song it holds.
 //
-//   node enrich.ts            look everything up, write artists.json
-//   node enrich.ts --selftest
+//   npm run enrich            look everything up, write artists.json
+//   npm test
 //
 // YouTube answers first, by video ID, from the credits its label supplied — exact, and so
 // needing nobody to confirm it. Deezer and iTunes answer only for what is left, and only
@@ -125,10 +125,17 @@ export function parseDuration(iso: string): number | null {
 
 // One request covers 50 videos and costs a single quota unit whatever it asks for, so
 // credits and durations come back together at no extra cost.
-// Where you are decides what will play. A track licensed for one country can sit in the
-// history of someone listening from another, because YouTube Music served them an
-// equivalent — but that video ID will not play there, and a playlist built from it hides
-// the entry without saying so.
+// Two different questions, and conflating them over-blocked about half the tracks it
+// touched. Measured across 339 videos:
+//
+//   region-ok + public     284     region-no + public      28   plays in YouTube Music
+//   region-no + unlisted    27     region-ok + unlisted      0   never observed
+//
+// regionRestriction describes youtube.com, which is what the watch_videos link opens, and
+// predicted the hidden count there exactly. YouTube Music licenses separately and plays a
+// public art track whatever that list says — confirmed on three tracks restricted to other
+// countries. What genuinely fails there is an unlisted upload, and every unlisted one is
+// region-blocked too, so treating unlisted as unavailable demotes nothing that worked.
 export const currentRegion = () =>
   process.env.RECAP_REGION ?? new Intl.Locale(Intl.DateTimeFormat().resolvedOptions().locale).region ?? "US";
 
@@ -143,11 +150,12 @@ async function youtubeLookup(ids: string[], key: string, region: string) {
   const artists = new Map<string, string>();
   const durations = new Map<string, number>();
   const recordings = new Map<string, string>();
-  const playable = new Map<string, boolean>();
+  const playable = new Map<string, boolean>(); // will play in YouTube Music
+  const inRegion = new Map<string, boolean>(); // the youtube.com link will show it
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50);
     const r = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${batch.join(",")}&key=${key}`,
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,status&id=${batch.join(",")}&key=${key}`,
     );
     if (!r.ok) {
       console.error(`  YouTube API returned ${r.status} — falling back to catalogue search.`);
@@ -163,10 +171,11 @@ async function youtubeLookup(ids: string[], key: string, region: string) {
       }
       const seconds = parseDuration(item.contentDetails?.duration ?? "");
       if (seconds) durations.set(item.id, seconds);
-      playable.set(item.id, playableIn(item.contentDetails?.regionRestriction, region));
+      playable.set(item.id, item.status?.privacyStatus === "public");
+      inRegion.set(item.id, playableIn(item.contentDetails?.regionRestriction, region));
     }
   }
-  return { artists, durations, recordings, playable };
+  return { artists, durations, recordings, playable, inRegion };
 }
 
 // YouTube titles often carry the artist as well ("Northbeam feat. X - Shapeshifter"), so
@@ -285,8 +294,14 @@ async function main() {
   // Availability is answered for one region, so moving country invalidates the whole file
   // rather than any single entry.
   const region = currentRegion();
-  const cached = loadCache<unknown>("availability.json") as { region?: string; playable?: Record<string, boolean> };
-  const availability = cached.region === region && cached.playable ? cached.playable : {};
+  const cached = loadCache<unknown>("availability.json") as {
+    region?: string;
+    playable?: Record<string, boolean>;
+    inRegion?: Record<string, boolean>;
+  };
+  const fresh = cached.region === region && cached.playable && cached.inRegion;
+  const availability = fresh ? cached.playable! : {};
+  const regional = fresh ? cached.inRegion! : {};
 
   const { todo, needLookup } = collectWork(store, lengths, recordings, availability);
   const key = process.env.YOUTUBE_API_KEY;
@@ -306,11 +321,13 @@ async function main() {
     for (const [id, seconds] of got.durations) lengths[id] = seconds;
     for (const [id, recording] of got.recordings) recordings[id] = recording;
     for (const [id, ok] of got.playable) availability[id] = ok;
+    for (const [id, ok] of got.inRegion) regional[id] = ok;
     writeFileSync("durations.json", JSON.stringify(lengths, null, 2) + "\n");
     writeFileSync("recordings.json", JSON.stringify(recordings, null, 2) + "\n");
-    writeFileSync("availability.json", JSON.stringify({ region, playable: availability }, null, 2) + "\n");
+    writeFileSync("availability.json", JSON.stringify({ region, playable: availability, inRegion: regional }, null, 2) + "\n");
     console.log(`  ${got.durations.size} track lengths, ${got.recordings.size} recordings, ` +
-        `${[...got.playable.values()].filter((x) => !x).length} not playable in ${region}.\n`);
+        `${[...got.playable.values()].filter((x) => !x).length} that YouTube Music will not play, ` +
+        `${[...got.inRegion.values()].filter((x) => !x).length} outside ${region}.\n`);
   } else {
     console.log("  YOUTUBE_API_KEY is not set, so only catalogue search is available and it");
     console.log("  guesses from titles. For exact artists, lengths and regions:");

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Create a real, permanent YouTube playlist from a recap.
 //
-//   node export.ts <period> [--title "..."] [--public] [--playable-only]
-//   node export.ts <period> --into=<playlistId> [--prune]   finish or re-sync a playlist
+//   npm run export -- <period> [--title "..."] [--public] [--playable-only]
+//   npm run export -- <period> --into=<playlistId> [--prune]   finish or re-sync a playlist
 //
 // The list a watch_videos link builds is temporary and belongs to nobody, so YouTube offers
 // no way to keep it. Creating one you own is the only way, and that means acting as you,
@@ -204,8 +204,8 @@ async function main() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!period || !clientId || !clientSecret) {
-    console.error("usage: node export.ts <period> [--title=\"...\"] [--public] [--playable-only]");
-    console.error("       node export.ts <period> --into=<playlistId> [--prune]   finish or re-sync a playlist");
+    console.error("usage: npm run export -- <period> [--title=\"...\"] [--public] [--playable-only]");
+    console.error("       npm run export -- <period> --into=<playlistId> [--prune]   finish or re-sync a playlist");
     if (!clientId || !clientSecret) {
       console.error(`\nGOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set. To create a playlist:`);
       console.error(`  cp .env.sample .env      # then paste an OAuth client id and secret into it`);
@@ -216,7 +216,7 @@ async function main() {
   const file = `out/${period}.json`;
   if (!existsSync(file)) {
     console.error(`No recap at ${file}. Build it first:`);
-    console.error(`  node recap.ts ${period}`);
+    console.error(`  npm run recap -- ${period}`);
     process.exit(1);
   }
   const tracks: { videoId: string; title: string; artist: string }[] = JSON.parse(readFileSync(file, "utf8"));
@@ -295,7 +295,7 @@ async function main() {
       if (/quota/i.test(message)) {
         console.error(`\n\nDaily quota is spent. It resets at midnight US Pacific.`);
         console.error(`Finish this playlist then — nothing already added is charged again:`);
-        console.error(`  node export.ts ${period} --into=${playlistId}`);
+        console.error(`  npm run export -- ${period} --into=${playlistId}`);
         break;
       }
     }

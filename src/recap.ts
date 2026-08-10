@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Rebuild a YouTube Music Recap playlist from a Google Takeout watch-history.json.
 //
-//   node recap.ts [history.json[,more.json]] <period> [limit] [--min-seconds=N]
+//   npm run recap -- [history.json[,more.json]] <period> [limit] [--min-seconds=N]
 //   the history file defaults to ./watch-history.json when left out
-//   node recap.ts --selftest
+//   npm test
 //
 // period: 2025 | h1-2025 | q3-2025 | summer-2025 | 2025-06-01..2025-08-31
 //
@@ -442,14 +442,14 @@ if (import.meta.filename !== process.argv[1]) {
 } else if (args.includes("--selftest")) {
   selftest();
 } else if (!period || Number.isNaN(minSeconds)) {
-  console.error(`usage: node recap.ts [history.json] <period> [limit] [--min-seconds=N]`);
+  console.error(`usage: npm run recap -- [history.json] <period> [limit] [--min-seconds=N]`);
   console.error(`  history defaults to ./${DEFAULT_HISTORY}; skips are anything under ${DEFAULT_MIN_SECONDS}s, and 0 counts every event`);
   process.exit(1);
 } else if (!existsSync(file.split(",")[0]!.trim())) {
   // Saying which file was looked for beats a usage line when the argument was simply left
   // out and the export is sitting somewhere else under a different name.
   console.error(`No history file at ${file}.`);
-  console.error(named ? `  Check the path.` : `  Put your Takeout export here as ${DEFAULT_HISTORY}, or pass its path: node recap.ts <file.json> ${period}`);
+  console.error(named ? `  Check the path.` : `  Put your Takeout export here as ${DEFAULT_HISTORY}, or pass its path: npm run recap -- <file.json> ${period}`);
   process.exit(1);
 } else {
   // Exports are capped, so a longer history means several overlapping ones. Listing them
@@ -467,9 +467,9 @@ if (import.meta.filename !== process.argv[1]) {
   const durations: Record<string, number> = existsSync("durations.json")
     ? JSON.parse(readFileSync("durations.json", "utf8"))
     : {};
-  const availability: Record<string, boolean> = existsSync("availability.json")
-    ? (JSON.parse(readFileSync("availability.json", "utf8")).playable ?? {})
-    : {};
+  const stored = existsSync("availability.json") ? JSON.parse(readFileSync("availability.json", "utf8")) : {};
+  const availability: Record<string, boolean> = stored.playable ?? {}; // plays in YouTube Music
+  const inRegion: Record<string, boolean> = stored.inRegion ?? {}; // the youtube.com link shows it
   const result = rank(activities, period, Number(limitArg ?? 100), minSeconds, recordings, durations, availability);
   const suffix = minSeconds === DEFAULT_MIN_SECONDS ? "" : `-min${minSeconds}s`;
 
@@ -503,8 +503,13 @@ if (import.meta.filename !== process.argv[1]) {
   // the ranking. Including them costs a slot each and YouTube silently hides them, so the
   // playlist arrives shorter than asked for with no explanation of why.
   // (availability is loaded above for rank())
-  const unplayable = result.tracks.filter((t) => availability[t.videoId] === false).length;
-  const shown = result.tracks.filter((t) => availability[t.videoId] !== false).slice(0, 50);
+  // Blocked tracks stay out of the link, where they would take a slot and be hidden anyway,
+  // but they are named on the page. A count says only that something was lost; the list is
+  // what lets a pattern be spotted — noticing one song sitting there under a version that
+  // does not play here is what produced the version-picking in rank().
+  const blocked = result.tracks.filter((t) => inRegion[t.videoId] === false);
+  const shown = result.tracks.filter((t) => inRegion[t.videoId] !== false).slice(0, 50);
+  const region = stored.region ?? "your region";
   const url = `https://www.youtube.com/watch_videos?video_ids=${shown.map((t) => t.videoId).join(",")}`;
   writeFileSync(
     `out/${result.label}${suffix}.playlist.html`,
@@ -513,23 +518,36 @@ if (import.meta.filename !== process.argv[1]) {
       `<h1>${result.label} — top ${shown.length}</h1>`,
       `<p>Open the link below while signed in to YouTube.</p>`,
       `<p><a href="${url}" style="font-size:1.2rem">Open these ${shown.length} tracks on YouTube &rarr;</a></p>`,
-      // The list YouTube builds is temporary and belongs to nobody, so saving it bookmarks
-      // something that can later disappear. Copying the tracks makes a playlist of your own.
-      // Reaching the page that can do that means editing the address: the player's own
-      // controls only collapse the panel.
-      `<p>That gives you a temporary <em>Untitled List</em>, which is not yet yours. To keep it:</p>`,
+      // YouTube will not take this list into a library — its page offers share and download
+      // and nothing else, and earlier versions of this page wrongly described a Save button.
+      // The address is still worth having: it is a working link to the same fifty tracks.
+      `<p>It plays as a temporary <em>Untitled List</em>. YouTube won't add that to your library, but the address works on its own and is worth keeping:</p>`,
       `<ol>`,
-      `<li>Look at the address bar. It now ends with <code>&amp;list=TLGG…</code> &mdash; copy that <code>TLGG…</code> value.</li>`,
-      `<li>Go to <code>https://www.youtube.com/playlist?list=</code> followed by it. That is the real playlist page.</li>`,
-      `<li>There, choose <strong>Save</strong>, or select the tracks and <strong>Add to playlist &rarr; New playlist</strong> to own a copy outright.</li>`,
+      `<li>Once it opens, the address bar ends with <code>&amp;list=TLGG…</code></li>`,
+      `<li><code>https://www.youtube.com/playlist?list=TLGG…</code> is that list's own page. Bookmark it, or paste it into your notes, to come back to this recap.</li>`,
       `</ol>`,
+      `<p>It is a temporary list, so treat the bookmark as convenience rather than an archive. For a playlist that genuinely lives in your account &mdash; and which needs a Google OAuth client set up once, unlike this page:</p>`,
+      `<pre style="background:#f4f4f4;padding:.6rem 1rem;border-radius:6px"><code>npm run export -- ${result.label}</code></pre>`,
       result.tracks.length > 50
         ? `<p><em>Your recap has ${result.tracks.length} tracks, but this link carries at most 50 — the rest need the API export.</em></p>`
         : ``,
-      unplayable
-        ? `<p><em>${unplayable} track${unplayable === 1 ? "" : "s"} in this recap ${unplayable === 1 ? "is" : "are"} not licensed for your region and would be hidden by YouTube, so ${unplayable === 1 ? "it is" : "they are"} left out and the places filled from further down the ranking.</em></p>`
-        : ``,
+      `<h2>In the link</h2>`,
       `<ol>${shown.map((t) => `<li>${t.title} — ${t.artist}</li>`).join("")}</ol>`,
+      blocked.length
+        ? [
+            `<h2>Left out of the link — not licensed in ${region} on youtube.com</h2>`,
+            `<p>These still count in the ranking. They are left out of the link only because the link opens youtube.com, where they are not licensed for ${region} and would be hidden — their places go to the next tracks down.</p>`,
+            `<p>Most of them still play in YouTube Music, which licenses separately, so the permanent export keeps them.</p>`,
+            `<ol>`,
+            blocked
+              .map(
+                (t) =>
+                  `<li>${t.title} — ${t.artist} <a href="https://music.youtube.com/watch?v=${t.videoId}" style="color:#888">${t.videoId}</a></li>`,
+              )
+              .join(""),
+            `</ol>`,
+          ].join("")
+        : ``,
     ].join("\n")),
   );
 

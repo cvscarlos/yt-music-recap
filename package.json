@@ -7,8 +7,12 @@
     "typescript": "^7.0.2"
   },
   "scripts": {
+    "recap": "node src/recap.ts",
+    "enrich": "node src/enrich.ts",
+    "export": "node src/export.ts",
+    "serve": "npx serve ./out/ -l 4900",
     "typecheck": "tsc --noEmit",
-    "test": "node recap.ts --selftest && node enrich.ts --selftest && node export.ts --selftest",
+    "test": "node src/recap.ts --selftest && node src/enrich.ts --selftest && node src/export.ts --selftest",
     "check": "npm run typecheck && npm run test",
     "prepare": "git config core.hooksPath .githooks"
   }
