@@ -54,7 +54,7 @@ The file you want is `watch-history.json`. Drop it in this folder and the comman
 **2. Run it.**
 
 ```bash
-node recap.ts 2025
+npm run recap -- 2025
 ```
 
 **3. Open `out/`.** Three files per period: `2025.md` to read, `2025.json` if you want the data, and `2025.playlist.html` to hear it straight away.
@@ -64,19 +64,19 @@ That's it. No install, no sign-up, no build step. Needs Node 22.18 or newer.
 ### Any period you like
 
 ```bash
-node recap.ts 2023                      # a year
-node recap.ts h1-2025                   # a half
-node recap.ts q3-2024                   # a quarter
-node recap.ts summer-2023               # a season
-node recap.ts 2023-06-01..2023-08-31    # any range
+npm run recap -- 2023                      # a year
+npm run recap -- h1-2025                   # a half
+npm run recap -- q3-2024                   # a quarter
+npm run recap -- summer-2023               # a season
+npm run recap -- 2023-06-01..2023-08-31    # any range
 ```
 
-Add a number to change the length: `node recap.ts 2025 50`.
+Add a number to change the length: `npm run recap -- 2025 50`.
 
 Google caps each export, so a history reaching further back means several of them. List them together and they merge, duplicates and all:
 
 ```bash
-node recap.ts watch-history-2024.json,watch-history-2026.json 2025
+npm run recap -- watch-history-2024.json,watch-history-2026.json 2025
 ```
 
 ## Turn it into a playlist
@@ -87,16 +87,20 @@ Two ways, depending on whether you want to keep it.
 
 Open `out/2025.playlist.html` and follow the link while signed in to YouTube. Your recap starts playing in order, straight away.
 
-No API key, no OAuth, no Google Cloud project, no quota — but YouTube treats this as a temporary list, so it plays and can't be saved. Fifty tracks.
+No API key, no OAuth, no Google Cloud project, no quota. Fifty tracks.
+
+YouTube won't add this one to your library, but its address is a working link to the same tracks — bookmark it and you can come back to the recap without regenerating anything. The page tells you where to find it. Treat that as convenience rather than an archive: it's a temporary list and YouTube may drop it eventually.
 
 ### Keep it — sign in once
 
+A real playlist in your account: private by default, named after the period, any length, and yours to keep. This is the one that needs setting up — a Google Cloud project with an **OAuth client**, not just an API key — because creating a playlist means acting as you.
+
 ```bash
-node export.ts 2025
-node export.ts 2025 --title="My 2025" --public
+npm run export -- 2025
+npm run export -- 2025 --title="My 2025" --public
 ```
 
-A real playlist in your account: private by default, named after the period, any length, and yours to keep. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` (see the sample) and approve it in the browser once.
+Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` (see the sample) and approve it in the browser once.
 
 ---
 
@@ -105,7 +109,7 @@ Whichever you use, set `RECAP_REGION` in `.env` to the country you watch from. M
 Google allows 10,000 quota units a day and each track costs 50, so **a hundred tracks is half your daily allowance** and two full attempts will exhaust it. If a run stops partway, don't start again — finish the one you have:
 
 ```bash
-node export.ts 2025 --into=PLxxxxxxxxxxxx
+npm run export -- 2025 --into=PLxxxxxxxxxxxx
 ```
 
 That adds only what's missing, at the right position, so it costs the tracks left rather than all of them. The playlist id is in its URL, and the command is printed for you when quota runs out. The allowance resets at midnight US Pacific, not your midnight.
@@ -118,8 +122,8 @@ Optional, and worth it. With a free YouTube API key, every track gets the artist
 
 ```bash
 cp .env.sample .env      # then paste your key in
-node enrich.ts
-node recap.ts 2025
+npm run enrich
+npm run recap -- 2025
 ```
 
 Getting the key takes about a minute — create a project at [console.cloud.google.com](https://console.cloud.google.com), enable **YouTube Data API v3**, then make an **API key** at `https://console.cloud.google.com/apis/credentials?project=<project-id>`. It's a plain API key, so there's no consent screen and no app review. A whole history costs a rounding error against the free daily allowance.
@@ -129,10 +133,12 @@ Getting the key takes about a minute — create a project at [console.cloud.goog
 They're plain files, so anything works. To flip through them in a browser:
 
 ```bash
-npx serve ./out/ -l 4900
+npm run serve      # then open http://localhost:4900
 ```
 
-That opens an index of every period you've generated — newest first, with its top track — linking to each list, its data, and the playlist.
+That serves an index of every period you've generated — newest first, with its top track — linking to each list, its data, and the playlist.
+
+Opening `out/index.html` directly works just as well: everything in there is a plain file with relative links, so the server is only a convenience.
 
 ## Your history stays yours
 

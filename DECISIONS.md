@@ -51,7 +51,22 @@ Tests asserting two values are *equal* cannot catch it, because an empty key sat
 
 That list belongs to nobody, so YouTube offers **no way to keep it** — its playlist page has share and download and nothing else. Two rounds of "click here to save it" guidance were wrong before this was established.
 
-Keeping a playlist means creating one you own, which means acting as the account holder, which means OAuth (`export.ts`). An API key authorises reading public data and nothing more.
+Keeping a playlist means creating one you own, which means acting as the account holder, which means OAuth (`src/export.ts`). An API key authorises reading public data and nothing more.
+
+## Region and playability are two different questions
+
+`regionRestriction` describes **youtube.com**, not YouTube Music. Conflating them over-blocked about half the tracks it touched.
+
+Measured across 339 checked videos:
+
+| | public | unlisted |
+| --- | --: | --: |
+| allowed in region | 284 | 0 |
+| not allowed in region | 28 | 27 |
+
+The 28 public-but-region-blocked tracks **play in YouTube Music** — confirmed on three of them, licensed to other countries entirely. What genuinely fails there is an *unlisted* upload. Every unlisted video is region-blocked too, so treating unlisted as unavailable demotes nothing that worked.
+
+So two signals are stored: `playable` (public, and so plays in YouTube Music) governs the export and the choice of which version represents a song; `inRegion` governs the `watch_videos` link, since that link opens youtube.com — where the region prediction matched the hidden count exactly.
 
 ## Region must be stated, never inferred
 
@@ -86,7 +101,7 @@ Considered and declined, each for a specific reason:
 
 ## Enrichment reads the recaps, not the history
 
-`enrich.ts` looks up only tracks that already charted, which bounds the work to a few hundred videos instead of ten thousand.
+`src/enrich.ts` looks up only tracks that already charted, which bounds the work to a few hundred videos instead of ten thousand.
 
 The known cost: a song split across two videos that **both** fall below the cut-off stays split, and their combined plays never lift it into the list. Passing the history instead would fix it, at roughly one request per fifty videos.
 
@@ -101,7 +116,7 @@ Tested against a real playlist, both ways:
 
 ## One OAuth scope, broader than wanted
 
-`export.ts` requests `https://www.googleapis.com/auth/youtube` and nothing else. It is used for `playlists.insert` and `playlistItems.insert`; reading metadata uses an API key and needs no scope.
+`src/export.ts` requests `https://www.googleapis.com/auth/youtube` and nothing else. It is used for `playlists.insert` and `playlistItems.insert`; reading metadata uses an API key and needs no scope.
 
 Google classifies it as *sensitive*, and it permits more than creating playlists — deleting videos, for one. There is no narrower option: `playlists.insert` accepts only this, `youtube.force-ssl` (wider), or `youtubepartner`. `youtube.readonly` cannot write and `youtube.upload` covers uploads alone.
 
@@ -110,5 +125,5 @@ The consent screen does not enforce its scope list while the app is in Testing �
 ## Known limits, accepted
 
 - Personal uploads to the YouTube Music library are invisible to every official API and cannot be added to a playlist. An unofficial client (`youtubei.js`) is the only route, and carries cookie upkeep and breakage — deliberately not taken.
-- OAuth refresh tokens expire every 7 days while the consent screen is in Testing. `export.ts` re-prompts automatically.
-- `"Watched "` is stripped from titles in English exports only. Tracks resolved through `enrich.ts` are unaffected — their titles come from the credits.
+- OAuth refresh tokens expire every 7 days while the consent screen is in Testing. `src/export.ts` re-prompts automatically.
+- `"Watched "` is stripped from titles in English exports only. Tracks resolved through `src/enrich.ts` are unaffected — their titles come from the credits.
